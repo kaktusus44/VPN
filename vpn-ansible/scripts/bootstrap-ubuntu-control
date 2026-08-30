@@ -41,6 +41,37 @@ ask_tty() {
   printf '%s' "$answer"
 }
 
+collection_installed() {
+  local collection_pattern="${1//./\\.}"
+  ansible-galaxy collection list 2>/dev/null | grep -Eq "^${collection_pattern}[[:space:]]"
+}
+
+install_collections() {
+  local attempt
+
+  if collection_installed ansible.posix && collection_installed community.general; then
+    echo "Нужные Ansible collections уже установлены."
+    return 0
+  fi
+
+  for attempt in 1 2 3; do
+    echo "Попытка $attempt/3 скачать Ansible collections..."
+    if ansible-galaxy collection install -r requirements.yml; then
+      return 0
+    fi
+    if [ "$attempt" -lt 3 ]; then
+      echo "Galaxy не ответил, повторяю через 10 секунд..."
+      sleep 10
+    fi
+  done
+
+  echo
+  echo "ВНИМАНИЕ: Galaxy сейчас недоступен, collections не установлены."
+  echo "Проверку сервера продолжаю: preflight использует встроенные модули."
+  echo "Перед запуском playbooks/vpn-core.yml повторите:"
+  echo "  cd \"$INSTALL_DIR\" && ansible-galaxy collection install -r requirements.yml"
+}
+
 if ! need_cmd apt-get; then
   echo "Этот bootstrap-скрипт поддерживает Ubuntu/Debian с apt-get." >&2
   exit 1
@@ -101,7 +132,7 @@ fi
 cd "$INSTALL_DIR"
 
 log "[5/5] Устанавливаю Ansible collections"
-ansible-galaxy collection install -r requirements.yml
+install_collections
 
 log "Управляющая Ubuntu готова"
 cat <<EOF
