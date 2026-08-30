@@ -111,11 +111,20 @@ else
 fi
 chmod 600 "$SSH_KEY_PATH"
 chmod 644 "$SSH_KEY_PATH.pub"
+PUBLIC_KEY_B64="$(base64 -w0 "$SSH_KEY_PATH.pub")"
 
 echo
 echo "===== СКОПИРУЙТЕ ЭТОТ ПУБЛИЧНЫЙ SSH-КЛЮЧ ====="
 cat "$SSH_KEY_PATH.pub"
 echo "===== КОНЕЦ SSH-КЛЮЧА ====="
+echo
+echo "Если VPS уже создан без ключа, выполните следующую команду"
+echo "в консоли VPS под root:"
+echo
+cat <<EOF
+KEY="\$(printf '%s' '$PUBLIC_KEY_B64' | base64 -d)"; install -d -m 700 /root/.ssh && touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && { grep -qxF "\$KEY" /root/.ssh/authorized_keys || printf '%s\n' "\$KEY" >> /root/.ssh/authorized_keys; } && chown -R root:root /root/.ssh
+EOF
+echo
 
 if [ -d "$INSTALL_DIR/.git" ]; then
   log "[4/5] Обновляю существующий репозиторий: $INSTALL_DIR"
@@ -144,6 +153,7 @@ cat <<EOF
 У провайдера добавьте его как SSH-ключ для root.
 Если добавляете вручную, строка должна попасть в /root/.ssh/authorized_keys,
 а не просто лежать отдельным файлом .pub на сервере.
+Готовая команда для уже созданного VPS была показана на шаге [3/5].
 После добавления ключа скрипт попросит роль и IP сервера.
 Повторный запуск проверки вручную:
   cd "$INSTALL_DIR"
@@ -156,7 +166,7 @@ EOF
 
 if [ -r /dev/tty ]; then
   echo
-  ask_tty "Добавьте ключ для root в /root/.ssh/authorized_keys и нажмите Enter..." >/dev/null
+  ask_tty "Добавьте ключ у провайдера или выполните команду на VPS, затем нажмите Enter..." >/dev/null
   SERVER_ROLE="$(ask_tty "Какой сервер разворачиваем [main/reserve]: ")"
   SERVER_IP="$(ask_tty "IP сервера: ")"
   "$INSTALL_DIR/scripts/check-server" "$SERVER_IP" "$SERVER_ROLE"
