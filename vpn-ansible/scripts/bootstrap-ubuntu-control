@@ -99,7 +99,8 @@ cat <<EOF
 Публичный SSH-ключ. Добавьте его у VPS-провайдера при создании сервера:
 $(cat "$SSH_KEY_PATH.pub")
 
-Когда сервер создан, проверка запускается так:
+После добавления ключа скрипт попросит роль и IP сервера.
+Повторный запуск проверки вручную:
   cd "$INSTALL_DIR"
   scripts/check-server 1.2.3.4 main
 
@@ -110,16 +111,8 @@ EOF
 
 if [ -r /dev/tty ]; then
   echo
-  CONTINUE_NOW="$(ask_tty "Сервер уже создан и SSH-ключ добавлен? Проверить сейчас? [y/N]: " || true)"
-  case "$CONTINUE_NOW" in
-    y|Y|yes|YES|да|Да|ДА)
-      SERVER_IP="$(ask_tty "IP сервера: ")"
-      SERVER_ROLE="$(ask_tty "Роль сервера [main/reserve, Enter=reserve]: ")"
-      SERVER_ROLE="${SERVER_ROLE:-reserve}"
-      "$INSTALL_DIR/scripts/check-server" "$SERVER_IP" "$SERVER_ROLE"
-      ;;
-    *)
-      echo "Ок. Когда сервер будет готов, запустите: cd \"$INSTALL_DIR\" && scripts/check-server <IP> <main|reserve>"
-      ;;
-  esac
+  ask_tty "Добавьте публичный ключ на сервер и нажмите Enter для продолжения..." >/dev/null
+  SERVER_ROLE="$(ask_tty "Какой сервер разворачиваем [main/reserve]: ")"
+  SERVER_IP="$(ask_tty "IP сервера: ")"
+  "$INSTALL_DIR/scripts/check-server" "$SERVER_IP" "$SERVER_ROLE"
 fi
