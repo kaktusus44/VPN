@@ -1,0 +1,18 @@
+---
+vpn_timezone: Etc/UTC
+vpn_admin_user: vpnadmin
+
+vpn_allowed_ssh_sources:
+  - 0.0.0.0/0
+
+vpn_enable_ipv6: true
+vpn_public_tcp_ports:
+  - 22
+  - 8443
+  - 8444
+vpn_public_udp_ports:
+  - 443
+
+vpn_forbidden_public_ports:
+  - 8877
+

@@ -1,0 +1,11 @@
+*.retry
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.vault
+*.key
+*.pem
+clients/
+exports/
+*.conf.private

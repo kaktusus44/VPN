@@ -1,0 +1,26 @@
+[Unit]
+Description=VPN custom Prometheus exporter
+After=network-online.target {{ awg_interface | default('awg0') }}.device
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ vpn_custom_exporter_user }}
+Group={{ vpn_custom_exporter_group }}
+Environment=LISTEN_ADDRESS={{ monitoring_listen_address }}
+Environment=PORT={{ vpn_custom_exporter_port }}
+Environment=INTERVAL={{ vpn_custom_exporter_interval }}
+Environment=AWG_COMMAND={{ vpn_custom_exporter_awg_command }}
+Environment=AWG_INTERFACE={{ vpn_custom_exporter_interface }}
+ExecStart={{ vpn_custom_exporter_path }}
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={{ vpn_custom_exporter_state_dir }}
+
+[Install]
+WantedBy=multi-user.target
+

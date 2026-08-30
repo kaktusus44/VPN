@@ -1,0 +1,5 @@
+---
+vpn_server_name: vpn-test-1
+vpn_server_role: reserve
+vpn_public_endpoint: 108.165.33.37
+

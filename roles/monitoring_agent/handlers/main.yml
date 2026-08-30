@@ -1,0 +1,10 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart vpn-custom-exporter
+  ansible.builtin.systemd:
+    name: vpn-custom-exporter
+    state: restarted
+

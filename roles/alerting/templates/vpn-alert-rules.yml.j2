@@ -1,0 +1,27 @@
+groups:
+  - name: {{ vpn_alert_rules_group_name }}
+    rules:
+      - alert: VpnExporterStale
+        expr: time() - vpn_sampler_last_success_timestamp_seconds > 300
+        for: {{ vpn_alert_for_exporter_stale }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "VPN exporter is stale on {{ "{{ $labels.instance }}" }}"
+
+      - alert: NoActivePeers
+        expr: vpn_awg_total_peers > 0 and vpn_awg_active_peers == 0
+        for: {{ vpn_alert_for_peer_collapse }}
+        labels:
+          severity: critical
+        annotations:
+          summary: "No active AWG peers on {{ "{{ $labels.instance }}" }}"
+
+      - alert: PeerCountCollapse
+        expr: vpn_awg_active_peers < 0.4 * avg_over_time(vpn_awg_active_peers[30m])
+        for: {{ vpn_alert_for_peer_collapse }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "AWG active peer count collapsed on {{ "{{ $labels.instance }}" }}"
+

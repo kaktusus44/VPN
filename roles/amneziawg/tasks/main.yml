@@ -1,0 +1,5 @@
+---
+- name: Placeholder for AmneziaWG deployment
+  ansible.builtin.debug:
+    msg: "AmneziaWG role will install packages, render awg0.conf, enable awg-quick@awg0, and validate runtime."
+

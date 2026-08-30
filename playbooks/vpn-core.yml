@@ -1,0 +1,14 @@
+---
+- name: Deploy VPN core
+  hosts: vpn_servers
+  gather_facts: true
+  become: true
+  roles:
+    - base
+    - firewall
+    - fail2ban
+    # - amneziawg
+    # - unbound_dns
+    # - xray_reality
+    # - vpn_clients
+

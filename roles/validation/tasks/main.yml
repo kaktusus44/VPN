@@ -1,0 +1,38 @@
+---
+- name: Collect host identity
+  ansible.builtin.command: hostnamectl
+  register: validation_hostnamectl
+  changed_when: false
+
+- name: Collect listening sockets
+  ansible.builtin.command: ss -ltnup
+  register: validation_sockets
+  changed_when: false
+
+- name: Collect UFW status
+  ansible.builtin.command: ufw status verbose
+  register: validation_ufw
+  changed_when: false
+  failed_when: false
+
+- name: Collect relevant service state
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    (systemctl list-units --type=service --all --no-pager;
+     systemctl list-unit-files --type=service --no-pager)
+    | grep -Ei 'amnezia|awg|wireguard|wg-|xray|v2ray|unbound|dns|monitor|prometheus|grafana|node_exporter|exporter|nginx|fail2ban|ssh|ufw'
+    | sort -u
+  args:
+    executable: /bin/bash
+  register: validation_services
+  changed_when: false
+  failed_when: false
+
+- name: Show preflight summary
+  ansible.builtin.debug:
+    msg:
+      hostnamectl: "{{ validation_hostnamectl.stdout_lines }}"
+      sockets: "{{ validation_sockets.stdout_lines }}"
+      ufw: "{{ validation_ufw.stdout_lines }}"
+      services: "{{ validation_services.stdout_lines }}"
+
