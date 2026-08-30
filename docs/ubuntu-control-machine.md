@@ -1,8 +1,8 @@
 # Ubuntu Control Machine Quick Start
 
 This prepares a fresh Ubuntu machine to run the VPN Ansible automation.
-It installs local tools, clones this repository into `~/VPN`, installs Ansible
-collections, and prints the safe next commands.
+It installs local tools, creates an SSH key for Ansible, clones this repository
+into `~/VPN`, installs Ansible collections, and prints the safe next commands.
 
 ## One Command
 
@@ -23,9 +23,18 @@ curl -fsSL https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstr
 - `ansible`
 - `git`
 - `openssh-client`
-- `sshpass`
 - `python3`
 - Ansible collections from `requirements.yml`
+
+It also creates this local SSH key when it does not already exist:
+
+```text
+~/.ssh/vpn_ansible
+```
+
+Use the printed public key when creating the VPS in the provider control panel.
+The server should have that public key installed for `root`, so Ansible can
+connect without an SSH password.
 
 ## What It Does Not Do
 
@@ -36,8 +45,8 @@ After it finishes, use the printed commands to run:
 
 ```bash
 cd ~/VPN
-ansible -i inventories/test/hosts.yml all -m ping --ask-pass
-ansible-playbook -i inventories/test/hosts.yml playbooks/preflight.yml --ask-pass
+ansible -i inventories/test/hosts.yml all -m ping
+ansible-playbook -i inventories/test/hosts.yml playbooks/preflight.yml
 ```
 
 Do not run `playbooks/vpn-core.yml` until the change window is approved.
@@ -47,11 +56,17 @@ Do not run `playbooks/vpn-core.yml` until the change window is approved.
 Clone to another directory:
 
 ```bash
-VPN_DIR=/opt/VPN wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
+wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | VPN_DIR=/opt/VPN bash
 ```
 
 Use another repository URL:
 
 ```bash
-VPN_REPO_URL=https://github.com/example/VPN.git wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
+wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | VPN_REPO_URL=https://github.com/example/VPN.git bash
+```
+
+Use another SSH key path:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | VPN_SSH_KEY=~/.ssh/customer_vpn bash
 ```

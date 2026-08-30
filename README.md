@@ -9,13 +9,15 @@ Monitoring is a separate layer.
 
 ## Ubuntu Control Machine Quick Start
 
-On a fresh Ubuntu machine, run one command to install the local tools, clone
-this repository to `~/VPN`, and install Ansible collections:
+On a fresh Ubuntu machine, run one command to install the local tools, create
+an SSH key for Ansible, clone this repository to `~/VPN`, and install Ansible
+collections:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
 ```
 
+Add the printed public SSH key to the VPS provider when creating the server.
 Then run only the safe checks printed by the script. Do not run
 `playbooks/vpn-core.yml` until the change window is approved.
 
@@ -34,7 +36,9 @@ Preflight on 2026-08-30:
 - UFW installed but inactive
 - no AmneziaWG, Xray, Unbound, fail2ban, nginx, or monitoring stack detected
 
-Do not store SSH passwords in this repo. Use `--ask-pass` or a temporary local environment for test access, then move to key-only SSH.
+Do not store SSH passwords in this repo. Prefer adding the generated
+`~/.ssh/vpn_ansible.pub` key to the VPS provider before server creation, then
+use key-only SSH for Ansible.
 
 ## Repository Shape
 
