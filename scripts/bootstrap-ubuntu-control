@@ -76,10 +76,15 @@ chmod 700 "$HOME/.ssh"
 if [ -f "$SSH_KEY_PATH" ]; then
   echo "Использую существующий ключ: $SSH_KEY_PATH"
 else
-  ssh-keygen -t ed25519 -N "" -f "$SSH_KEY_PATH" -C "vpn-ansible-$(hostname)-$(date +%Y%m%d)"
+  ssh-keygen -q -t ed25519 -N "" -f "$SSH_KEY_PATH" -C "vpn-ansible-$(hostname)-$(date +%Y%m%d)"
 fi
 chmod 600 "$SSH_KEY_PATH"
 chmod 644 "$SSH_KEY_PATH.pub"
+
+echo
+echo "===== СКОПИРУЙТЕ ЭТОТ ПУБЛИЧНЫЙ SSH-КЛЮЧ ====="
+cat "$SSH_KEY_PATH.pub"
+echo "===== КОНЕЦ SSH-КЛЮЧА ====="
 
 if [ -d "$INSTALL_DIR/.git" ]; then
   log "[4/5] Обновляю существующий репозиторий: $INSTALL_DIR"
@@ -104,10 +109,8 @@ cat <<EOF
 Репозиторий:
   $INSTALL_DIR
 
-Публичный SSH-ключ. Добавьте его у VPS-провайдера при создании сервера:
-$(cat "$SSH_KEY_PATH.pub")
-
-После добавления ключа скрипт попросит роль и IP сервера.
+Публичный SSH-ключ был показан на шаге [3/5].
+После его добавления скрипт попросит роль и IP сервера.
 Повторный запуск проверки вручную:
   cd "$INSTALL_DIR"
   scripts/check-server 1.2.3.4 main
