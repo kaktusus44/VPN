@@ -1,4 +1,42 @@
-# VPN Ansible
+# VPN Server Setup
+
+Короткая инструкция для заказчика.
+
+## Что сделать
+
+1. Откройте свою Ubuntu-машину.
+
+2. Выполните одну команду:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
+```
+
+3. Скопируйте публичный SSH-ключ, который появится в конце вывода.
+
+4. При создании VPS-сервера у провайдера добавьте этот SSH-ключ для `root`.
+
+5. Вернитесь в Ubuntu и запустите проверку, указав IP нового сервера:
+
+```bash
+cd ~/VPN
+scripts/check-server 1.2.3.4
+```
+
+Замените `1.2.3.4` на IP сервера.
+
+6. Пришлите результат проверки инженеру.
+
+Если репозиторий уже был скачан раньше:
+
+```bash
+cd ~/VPN
+git pull
+```
+
+Не запускайте `playbooks/vpn-core.yml` без подтверждения инженера.
+
+## Technical Notes
 
 Repeatable deployment for active `main` and `reserve` VPN servers.
 
@@ -7,22 +45,8 @@ Reserve anti-blocking channel: Xray / VLESS / Reality.
 DNS: Unbound inside the VPN only.
 Monitoring is a separate layer.
 
-## Ubuntu Control Machine Quick Start
-
-On a fresh Ubuntu machine, run one command to install the local tools, create
-an SSH key for Ansible, clone this repository to `~/VPN`, and install Ansible
-collections:
-
-```bash
-wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
-```
-
-Add the printed public SSH key to the VPS provider when creating the server.
-Then run only the safe checks printed by the script. Do not run
-`playbooks/vpn-core.yml` until the change window is approved.
-
-See [docs/ubuntu-control-machine.md](docs/ubuntu-control-machine.md) for the
-step-by-step version.
+Detailed Ubuntu control-machine notes:
+[docs/ubuntu-control-machine.md](docs/ubuntu-control-machine.md).
 
 ## First Test Server
 
@@ -68,10 +92,13 @@ playbooks/
   alerting/
   validation/
 scripts/
+  bootstrap-ubuntu-control
+  check-server
   export-client-links
   compare-server-configs
   rotate-endpoint
 docs/
+  ubuntu-control-machine.md
   runbook.md
   export-file-contract.md
 ```

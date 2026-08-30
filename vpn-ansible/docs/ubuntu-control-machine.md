@@ -1,72 +1,41 @@
-# Ubuntu Control Machine Quick Start
+# Ubuntu для запуска VPN-скриптов
 
-This prepares a fresh Ubuntu machine to run the VPN Ansible automation.
-It installs local tools, creates an SSH key for Ansible, clones this repository
-into `~/VPN`, installs Ansible collections, and prints the safe next commands.
+## Быстрый старт
 
-## One Command
-
-Run this on the Ubuntu control machine:
+На Ubuntu выполните:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
 ```
 
-If `wget` is missing but `curl` exists:
+Скрипт установит нужные программы, скачает репозиторий в `~/VPN` и создаст
+SSH-ключ `~/.ssh/vpn_ansible`.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
-```
+Скопируйте публичный ключ из вывода скрипта и добавьте его при создании
+VPS-сервера у провайдера.
 
-## What It Installs
-
-- `ansible`
-- `git`
-- `openssh-client`
-- `python3`
-- Ansible collections from `requirements.yml`
-
-It also creates this local SSH key when it does not already exist:
-
-```text
-~/.ssh/vpn_ansible
-```
-
-Use the printed public key when creating the VPS in the provider control panel.
-The server should have that public key installed for `root`, so Ansible can
-connect without an SSH password.
-
-## What It Does Not Do
-
-The bootstrap does not change any VPN server. It only prepares the local
-machine that will run Ansible.
-
-After it finishes, use the printed commands to run:
+## Проверить сервер
 
 ```bash
 cd ~/VPN
-ansible -i inventories/test/hosts.yml all -m ping
-ansible-playbook -i inventories/test/hosts.yml playbooks/preflight.yml
+scripts/check-server 1.2.3.4
 ```
 
-Do not run `playbooks/vpn-core.yml` until the change window is approved.
+Замените `1.2.3.4` на IP нового сервера.
 
-## Optional Settings
+Если проверка прошла успешно, пришлите вывод инженеру.
 
-Clone to another directory:
+Не запускайте `playbooks/vpn-core.yml` без подтверждения инженера.
+
+## Если репозиторий уже скачан
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | VPN_DIR=/opt/VPN bash
+cd ~/VPN
+git pull
 ```
 
-Use another repository URL:
+Если репозиторий лежит не в `~/VPN`, bootstrap можно запустить так:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | VPN_REPO_URL=https://github.com/example/VPN.git bash
-```
-
-Use another SSH key path:
-
-```bash
-wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | VPN_SSH_KEY=~/.ssh/customer_vpn bash
+wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | VPN_DIR=/path/to/VPN bash
 ```

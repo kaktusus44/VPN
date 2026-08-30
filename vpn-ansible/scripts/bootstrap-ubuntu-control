@@ -20,11 +20,11 @@ else
 fi
 
 if ! need_cmd apt-get; then
-  echo "This bootstrap script supports Ubuntu/Debian hosts with apt-get." >&2
+  echo "Этот bootstrap-скрипт поддерживает Ubuntu/Debian с apt-get." >&2
   exit 1
 fi
 
-log "Installing local control-machine dependencies"
+log "Устанавливаю программы на управляющую Ubuntu"
 $SUDO apt-get update
 $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ansible \
@@ -32,12 +32,12 @@ $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
   openssh-client \
   python3
 
-log "Preparing SSH key for Ansible"
+log "Готовлю SSH-ключ для Ansible"
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
 if [ -f "$SSH_KEY_PATH" ]; then
-  echo "Using existing key: $SSH_KEY_PATH"
+  echo "Использую существующий ключ: $SSH_KEY_PATH"
 else
   ssh-keygen -t ed25519 -N "" -f "$SSH_KEY_PATH" -C "vpn-ansible-$(hostname)-$(date +%Y%m%d)"
 fi
@@ -45,37 +45,35 @@ chmod 600 "$SSH_KEY_PATH"
 chmod 644 "$SSH_KEY_PATH.pub"
 
 if [ -d "$INSTALL_DIR/.git" ]; then
-  log "Updating existing repository at $INSTALL_DIR"
+  log "Обновляю существующий репозиторий: $INSTALL_DIR"
   git -C "$INSTALL_DIR" pull --ff-only
 elif [ -e "$INSTALL_DIR" ]; then
-  echo "$INSTALL_DIR already exists but is not a git repository." >&2
-  echo "Move it away or set VPN_DIR=/another/path and run again." >&2
+  echo "$INSTALL_DIR уже существует, но это не git-репозиторий." >&2
+  echo "Переместите эту папку или запустите с VPN_DIR=/another/path." >&2
   exit 1
 else
-  log "Cloning VPN automation repository"
+  log "Скачиваю VPN-репозиторий"
   git clone "$REPO_URL" "$INSTALL_DIR"
 fi
 
 cd "$INSTALL_DIR"
 
-log "Installing Ansible collections"
+log "Устанавливаю Ansible collections"
 ansible-galaxy collection install -r requirements.yml
 
-log "Control machine is ready"
+log "Управляющая Ubuntu готова"
 cat <<EOF
 
-Repository:
+Репозиторий:
   $INSTALL_DIR
 
-Public SSH key to add to the VPS provider before server creation:
+Публичный SSH-ключ. Добавьте его у VPS-провайдера при создании сервера:
 $(cat "$SSH_KEY_PATH.pub")
 
-Safe connectivity check for the test server:
+Проверка нового сервера:
   cd "$INSTALL_DIR"
-  ansible -i inventories/test/hosts.yml all -m ping
+  scripts/check-server 1.2.3.4
 
-Read-only preflight after ping succeeds:
-  ansible-playbook -i inventories/test/hosts.yml playbooks/preflight.yml
-
-Do not run playbooks/vpn-core.yml until the change window is approved.
+Замените 1.2.3.4 на IP сервера.
+Не запускайте playbooks/vpn-core.yml без подтверждения инженера.
 EOF
