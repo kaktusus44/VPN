@@ -21,7 +21,7 @@ fi
 
 wait_for_apt() {
   local waited=0
-  while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
+  while need_cmd fuser && $SUDO fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
     if [ "$waited" -eq 0 ]; then
       log "Жду, пока Ubuntu закончит фоновое обновление apt"
     fi
@@ -47,21 +47,29 @@ if ! need_cmd apt-get; then
 fi
 
 if [ -n "$SUDO" ]; then
-  log "Проверяю sudo-доступ"
+  log "[1/5] Проверяю sudo-доступ"
   $SUDO -v
 fi
 
-log "Устанавливаю программы на управляющую Ubuntu"
-wait_for_apt
-$SUDO apt-get update || echo "apt update завершился с предупреждением. Продолжаю установку по доступным индексам."
-wait_for_apt
-$SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  ansible \
-  git \
-  openssh-client \
-  python3
+MISSING_PACKAGES=()
+need_cmd ansible || MISSING_PACKAGES+=(ansible)
+need_cmd git || MISSING_PACKAGES+=(git)
+need_cmd ssh || MISSING_PACKAGES+=(openssh-client)
+need_cmd python3 || MISSING_PACKAGES+=(python3)
 
-log "Готовлю SSH-ключ для Ansible"
+log "[2/5] Проверяю программы на управляющей Ubuntu"
+if [ "${#MISSING_PACKAGES[@]}" -gt 0 ]; then
+  echo "Нужно установить: ${MISSING_PACKAGES[*]}"
+  wait_for_apt
+  $SUDO apt-get -o DPkg::Lock::Timeout=600 update || \
+    echo "apt update завершился с предупреждением. Продолжаю по доступным индексам."
+  wait_for_apt
+  $SUDO DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y "${MISSING_PACKAGES[@]}"
+else
+  echo "Все нужные программы уже установлены, apt пропускаю."
+fi
+
+log "[3/5] Готовлю SSH-ключ для Ansible"
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
@@ -74,20 +82,20 @@ chmod 600 "$SSH_KEY_PATH"
 chmod 644 "$SSH_KEY_PATH.pub"
 
 if [ -d "$INSTALL_DIR/.git" ]; then
-  log "Обновляю существующий репозиторий: $INSTALL_DIR"
+  log "[4/5] Обновляю существующий репозиторий: $INSTALL_DIR"
   git -C "$INSTALL_DIR" pull --ff-only
 elif [ -e "$INSTALL_DIR" ]; then
   echo "$INSTALL_DIR уже существует, но это не git-репозиторий." >&2
   echo "Переместите эту папку или запустите с VPN_DIR=/another/path." >&2
   exit 1
 else
-  log "Скачиваю VPN-репозиторий"
+  log "[4/5] Скачиваю VPN-репозиторий"
   git clone "$REPO_URL" "$INSTALL_DIR"
 fi
 
 cd "$INSTALL_DIR"
 
-log "Устанавливаю Ansible collections"
+log "[5/5] Устанавливаю Ansible collections"
 ansible-galaxy collection install -r requirements.yml
 
 log "Управляющая Ubuntu готова"
