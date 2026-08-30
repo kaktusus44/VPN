@@ -6,7 +6,7 @@ INSTALL_DIR="${VPN_DIR:-$HOME/VPN}"
 SSH_KEY_PATH="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
 
 log() {
-  printf '\n==> %s\n' "$*"
+  printf '\n==> [%s] %s\n' "$(date +%H:%M:%S)" "$*"
 }
 
 need_cmd() {
@@ -19,13 +19,42 @@ else
   SUDO=
 fi
 
+wait_for_apt() {
+  local waited=0
+  while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
+    if [ "$waited" -eq 0 ]; then
+      log "Жду, пока Ubuntu закончит фоновое обновление apt"
+    fi
+    echo "apt занят другим процессом, жду 10 секунд..."
+    sleep 10
+    waited=$((waited + 10))
+  done
+}
+
+ask_tty() {
+  local prompt="$1"
+  local answer
+  if [ ! -r /dev/tty ]; then
+    return 1
+  fi
+  read -r -p "$prompt" answer </dev/tty
+  printf '%s' "$answer"
+}
+
 if ! need_cmd apt-get; then
   echo "Этот bootstrap-скрипт поддерживает Ubuntu/Debian с apt-get." >&2
   exit 1
 fi
 
+if [ -n "$SUDO" ]; then
+  log "Проверяю sudo-доступ"
+  $SUDO -v
+fi
+
 log "Устанавливаю программы на управляющую Ubuntu"
-$SUDO apt-get update
+wait_for_apt
+$SUDO apt-get update || echo "apt update завершился с предупреждением. Продолжаю установку по доступным индексам."
+wait_for_apt
 $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ansible \
   git \
@@ -70,10 +99,27 @@ cat <<EOF
 Публичный SSH-ключ. Добавьте его у VPS-провайдера при создании сервера:
 $(cat "$SSH_KEY_PATH.pub")
 
-Проверка нового сервера:
+Когда сервер создан, проверка запускается так:
   cd "$INSTALL_DIR"
-  scripts/check-server 1.2.3.4
+  scripts/check-server 1.2.3.4 main
 
 Замените 1.2.3.4 на IP сервера.
+Роль укажите main или reserve.
 Не запускайте playbooks/vpn-core.yml без подтверждения инженера.
 EOF
+
+if [ -r /dev/tty ]; then
+  echo
+  CONTINUE_NOW="$(ask_tty "Сервер уже создан и SSH-ключ добавлен? Проверить сейчас? [y/N]: " || true)"
+  case "$CONTINUE_NOW" in
+    y|Y|yes|YES|да|Да|ДА)
+      SERVER_IP="$(ask_tty "IP сервера: ")"
+      SERVER_ROLE="$(ask_tty "Роль сервера [main/reserve, Enter=reserve]: ")"
+      SERVER_ROLE="${SERVER_ROLE:-reserve}"
+      "$INSTALL_DIR/scripts/check-server" "$SERVER_IP" "$SERVER_ROLE"
+      ;;
+    *)
+      echo "Ок. Когда сервер будет готов, запустите: cd \"$INSTALL_DIR\" && scripts/check-server <IP> <main|reserve>"
+      ;;
+  esac
+fi
