@@ -36,35 +36,35 @@ git pull
 
 Не запускайте `playbooks/vpn-core.yml` без подтверждения инженера.
 
-## Technical Notes
+## Технические заметки
 
-Repeatable deployment for active `main` and `reserve` VPN servers.
+Повторяемое развёртывание VPN-серверов `main` и `reserve`.
 
-Primary VPN: AmneziaWG.
-Reserve anti-blocking channel: Xray / VLESS / Reality.
-DNS: Unbound inside the VPN only.
-Monitoring is a separate layer.
+Основной VPN: AmneziaWG.
+Резервный канал: Xray / VLESS / Reality.
+DNS: Unbound только внутри VPN.
+Мониторинг: отдельный слой.
 
-Detailed Ubuntu control-machine notes:
+Подробная инструкция для Ubuntu:
 [docs/ubuntu-control-machine.md](docs/ubuntu-control-machine.md).
 
-## First Test Server
+## Первый тестовый сервер
 
-`108.165.33.37` is the first clean test host.
+`108.165.33.37` — первый чистый тестовый сервер.
 
-Preflight on 2026-08-30:
+Preflight от 2026-08-30:
 
 - Ubuntu 24.04.4 LTS
-- kernel `6.8.0-111-generic`
-- only public service found: SSH on `22/tcp`
-- UFW installed but inactive
-- no AmneziaWG, Xray, Unbound, fail2ban, nginx, or monitoring stack detected
+- kernel `6.8.0-111-generic`;
+- снаружи найден только SSH на `22/tcp`;
+- UFW установлен, но выключен;
+- AmneziaWG, Xray, Unbound, fail2ban, nginx и monitoring stack не найдены.
 
-Do not store SSH passwords in this repo. Prefer adding the generated
-`~/.ssh/vpn_ansible.pub` key to the VPS provider before server creation, then
-use key-only SSH for Ansible.
+Не храните SSH-пароли в репозитории. Лучше добавить сгенерированный ключ
+`~/.ssh/vpn_ansible.pub` у VPS-провайдера при создании сервера и дальше
+подключаться через SSH-ключ.
 
-## Repository Shape
+## Структура репозитория
 
 ```text
 inventories/
@@ -103,9 +103,10 @@ docs/
   export-file-contract.md
 ```
 
-## Export Format
+## Формат экспорта
 
-Primary export is a plain line-based file. One line is one ready-to-copy client artifact:
+Основной экспорт — простой текстовый файл. Одна строка — один готовый артефакт
+для клиента:
 
 ```text
 client-001 main amneziawg <ready-client-link>
@@ -113,7 +114,7 @@ client-001 main vless_xhttp vless://...
 client-001 main vless_tcp vless://...
 ```
 
-Field order:
+Порядок полей:
 
 ```text
 client_id server_role protocol ready_link
@@ -121,4 +122,7 @@ client_id server_role protocol ready_link
 
 ## Monitoring
 
-Monitoring is a separate layer. The VPN server should expose host metrics, AWG metrics, and project-specific VPN health metrics. Alert delivery should be handled through Prometheus alert rules and Alertmanager, not through direct Telegram logic embedded in the exporter.
+Мониторинг — отдельный слой. VPN-сервер должен отдавать host metrics,
+AWG metrics и проектные VPN health metrics. Алерты лучше отправлять через
+Prometheus alert rules и Alertmanager, а не прямой Telegram-логикой внутри
+exporter.
