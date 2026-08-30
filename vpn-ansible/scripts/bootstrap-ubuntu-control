@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPO_URL="${VPN_REPO_URL:-https://github.com/kaktusus44/VPN.git}"
+INSTALL_DIR="${VPN_DIR:-$HOME/VPN}"
+
+log() {
+  printf '\n==> %s\n' "$*"
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+if need_cmd sudo; then
+  SUDO=sudo
+else
+  SUDO=
+fi
+
+if ! need_cmd apt-get; then
+  echo "This bootstrap script supports Ubuntu/Debian hosts with apt-get." >&2
+  exit 1
+fi
+
+log "Installing local control-machine dependencies"
+$SUDO apt-get update
+$SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  ansible \
+  git \
+  openssh-client \
+  sshpass \
+  python3
+
+if [ -d "$INSTALL_DIR/.git" ]; then
+  log "Updating existing repository at $INSTALL_DIR"
+  git -C "$INSTALL_DIR" pull --ff-only
+elif [ -e "$INSTALL_DIR" ]; then
+  echo "$INSTALL_DIR already exists but is not a git repository." >&2
+  echo "Move it away or set VPN_DIR=/another/path and run again." >&2
+  exit 1
+else
+  log "Cloning VPN automation repository"
+  git clone "$REPO_URL" "$INSTALL_DIR"
+fi
+
+cd "$INSTALL_DIR"
+
+log "Installing Ansible collections"
+ansible-galaxy collection install -r requirements.yml
+
+log "Control machine is ready"
+cat <<EOF
+
+Repository:
+  $INSTALL_DIR
+
+Safe connectivity check for the test server:
+  cd "$INSTALL_DIR"
+  ansible -i inventories/test/hosts.yml all -m ping --ask-pass
+
+Read-only preflight after ping succeeds:
+  ansible-playbook -i inventories/test/hosts.yml playbooks/preflight.yml --ask-pass
+
+Do not run playbooks/vpn-core.yml until the change window is approved.
+EOF

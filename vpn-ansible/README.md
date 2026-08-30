@@ -7,6 +7,21 @@ Reserve anti-blocking channel: Xray / VLESS / Reality.
 DNS: Unbound inside the VPN only.
 Monitoring is a separate layer.
 
+## Ubuntu Control Machine Quick Start
+
+On a fresh Ubuntu machine, run one command to install the local tools, clone
+this repository to `~/VPN`, and install Ansible collections:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
+```
+
+Then run only the safe checks printed by the script. Do not run
+`playbooks/vpn-core.yml` until the change window is approved.
+
+See [docs/ubuntu-control-machine.md](docs/ubuntu-control-machine.md) for the
+step-by-step version.
+
 ## First Test Server
 
 `108.165.33.37` is the first clean test host.
