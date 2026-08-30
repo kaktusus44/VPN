@@ -1,0 +1,5 @@
+---
+- name: Placeholder for Xray Reality reserve channel
+  ansible.builtin.debug:
+    msg: "Xray role will install a pinned version, render config, validate it, and restart safely."
+

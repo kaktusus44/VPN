@@ -1,0 +1,11 @@
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1 {{ awg_ipv4_network | default('10.8.0.0/24') }} {{ awg_ipv6_network | default('fd00:8::/64') }}
+bantime = 1h
+findtime = 10m
+maxretry = 5
+backend = systemd
+
+[sshd]
+enabled = true
+port = {{ ansible_port | default(22) }}
+

@@ -1,0 +1,10 @@
+---
+monitoring_listen_address: "127.0.0.1"
+vpn_custom_exporter_port: 9187
+vpn_custom_exporter_user: root
+vpn_custom_exporter_group: root
+vpn_custom_exporter_interval: 30
+vpn_custom_exporter_path: /usr/local/bin/vpn-custom-exporter
+vpn_custom_exporter_state_dir: /var/lib/vpn-custom-exporter
+vpn_custom_exporter_awg_command: awg
+vpn_custom_exporter_interface: "{{ awg_interface | default('awg0') }}"

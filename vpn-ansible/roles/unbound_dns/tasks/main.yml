@@ -1,0 +1,5 @@
+---
+- name: Placeholder for Unbound VPN DNS
+  ansible.builtin.debug:
+    msg: "Unbound role will listen only on VPN addresses and refuse non-VPN clients."
+

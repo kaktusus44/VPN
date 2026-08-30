@@ -1,0 +1,7 @@
+---
+vpn_alert_rules_group_name: vpn.rules
+vpn_alert_for_server_down: 2m
+vpn_alert_for_service_down: 2m
+vpn_alert_for_peer_collapse: 10m
+vpn_alert_for_exporter_stale: 5m
+

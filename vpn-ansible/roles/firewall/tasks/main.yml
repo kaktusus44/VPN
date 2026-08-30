@@ -1,0 +1,35 @@
+---
+- name: Reset default UFW policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+    - { direction: routed, policy: deny }
+
+- name: Allow configured public TCP ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ vpn_public_tcp_ports }}"
+
+- name: Allow configured public UDP ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: udp
+  loop: "{{ vpn_public_udp_ports }}"
+
+- name: Deny forbidden public ports
+  community.general.ufw:
+    rule: deny
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ vpn_forbidden_public_ports }}"
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+

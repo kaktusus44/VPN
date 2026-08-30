@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "compare-server-configs is not implemented yet" >&2
+exit 2
+

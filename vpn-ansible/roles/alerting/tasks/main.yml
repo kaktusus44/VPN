@@ -1,0 +1,5 @@
+---
+- name: Placeholder for Prometheus alert rules and Alertmanager routing
+  ansible.builtin.debug:
+    msg: "Alerting role will render Prometheus VPN alert rules and Alertmanager routes/receivers."
+

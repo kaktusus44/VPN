@@ -1,0 +1,5 @@
+---
+- name: Placeholder for VPN client lifecycle
+  ansible.builtin.debug:
+    msg: "Client role will add/delete AWG peers and Xray clients, then refresh ready-link export."
+
