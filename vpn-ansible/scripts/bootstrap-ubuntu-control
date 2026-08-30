@@ -141,7 +141,10 @@ cat <<EOF
   $INSTALL_DIR
 
 Публичный SSH-ключ был показан на шаге [3/5].
-После его добавления скрипт попросит роль и IP сервера.
+У провайдера добавьте его как SSH-ключ для root.
+Если добавляете вручную, строка должна попасть в /root/.ssh/authorized_keys,
+а не просто лежать отдельным файлом .pub на сервере.
+После добавления ключа скрипт попросит роль и IP сервера.
 Повторный запуск проверки вручную:
   cd "$INSTALL_DIR"
   scripts/check-server 1.2.3.4 main
@@ -153,7 +156,7 @@ EOF
 
 if [ -r /dev/tty ]; then
   echo
-  ask_tty "Добавьте публичный ключ на сервер и нажмите Enter для продолжения..." >/dev/null
+  ask_tty "Добавьте ключ для root в /root/.ssh/authorized_keys и нажмите Enter..." >/dev/null
   SERVER_ROLE="$(ask_tty "Какой сервер разворачиваем [main/reserve]: ")"
   SERVER_IP="$(ask_tty "IP сервера: ")"
   "$INSTALL_DIR/scripts/check-server" "$SERVER_IP" "$SERVER_ROLE"

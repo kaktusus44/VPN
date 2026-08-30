@@ -12,7 +12,8 @@ wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstra
 SSH-ключ `~/.ssh/vpn_ansible`.
 
 Скопируйте публичный ключ из вывода скрипта и добавьте его при создании
-VPS-сервера у провайдера.
+VPS-сервера у провайдера для `root`. При ручной настройке строка ключа должна
+находиться в `/root/.ssh/authorized_keys`; отдельного файла `.pub` недостаточно.
 
 ## Проверить сервер
 
