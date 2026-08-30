@@ -2,10 +2,11 @@
 set -Eeuo pipefail
 
 SERVER_IP="${1:-}"
+SERVER_ROLE="${2:-}"
 
 if [ -z "$SERVER_IP" ]; then
-  echo "Использование: scripts/check-server <ip-сервера>" >&2
-  echo "Пример: scripts/check-server 108.165.33.37" >&2
+  echo "Использование: scripts/check-server <ip-сервера> [main|reserve]" >&2
+  echo "Пример: scripts/check-server 108.165.33.37 reserve" >&2
   exit 1
 fi
 
@@ -13,6 +14,33 @@ if ! [[ "$SERVER_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
   echo "Ожидался IPv4-адрес, получено: $SERVER_IP" >&2
   exit 1
 fi
+
+if [ -z "$SERVER_ROLE" ]; then
+  if [ -r /dev/tty ]; then
+    echo "Какой сервер проверяем?"
+    echo "1) main"
+    echo "2) reserve"
+    read -r -p "Введите 1 или 2: " ROLE_CHOICE </dev/tty
+    case "$ROLE_CHOICE" in
+      1|main) SERVER_ROLE="main" ;;
+      2|reserve|"") SERVER_ROLE="reserve" ;;
+      *)
+        echo "Ожидалось 1/main или 2/reserve." >&2
+        exit 1
+        ;;
+    esac
+  else
+    SERVER_ROLE="reserve"
+  fi
+fi
+
+case "$SERVER_ROLE" in
+  main|reserve) ;;
+  *)
+    echo "Роль должна быть main или reserve, получено: $SERVER_ROLE" >&2
+    exit 1
+    ;;
+esac
 
 cd "$(dirname "$0")/.."
 
@@ -26,7 +54,7 @@ all:
           ansible_host: $SERVER_IP
           ansible_user: root
           ansible_port: 22
-          vpn_server_role: reserve
+          vpn_server_role: $SERVER_ROLE
           vpn_public_endpoint: $SERVER_IP
 EOF
 
@@ -39,7 +67,7 @@ if ! ssh-keygen -F "$SERVER_IP" >/dev/null 2>&1; then
 fi
 
 echo
-echo "Проверяю SSH/Ansible-доступ к $SERVER_IP"
+echo "Проверяю SSH/Ansible-доступ к $SERVER_IP ($SERVER_ROLE)"
 ansible -i inventories/test/hosts.yml all -m ping
 
 echo
