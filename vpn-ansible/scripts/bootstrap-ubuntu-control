@@ -4,6 +4,8 @@ set -Eeuo pipefail
 REPO_URL="${VPN_REPO_URL:-https://github.com/kaktusus44/VPN.git}"
 INSTALL_DIR="${VPN_DIR:-$HOME/VPN}"
 SSH_KEY_PATH="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
+ANSIBLE_VENV="$INSTALL_DIR/.venv"
+ANSIBLE_CORE_SPEC="ansible-core>=2.17,<2.18"
 
 log() {
   printf '\n==> [%s] %s\n' "$(date +%H:%M:%S)" "$*"
@@ -43,7 +45,7 @@ ask_tty() {
 
 collection_installed() {
   local collection_pattern="${1//./\\.}"
-  ansible-galaxy collection list 2>/dev/null | grep -Eq "^${collection_pattern}[[:space:]]"
+  "$ANSIBLE_VENV/bin/ansible-galaxy" collection list 2>/dev/null | grep -Eq "^${collection_pattern}[[:space:]]"
 }
 
 install_collections() {
@@ -56,7 +58,7 @@ install_collections() {
 
   for attempt in 1 2 3; do
     echo "Попытка $attempt/3 скачать Ansible collections..."
-    if ansible-galaxy collection install -r requirements.yml; then
+    if "$ANSIBLE_VENV/bin/ansible-galaxy" collection install -r requirements.yml; then
       return 0
     fi
     if [ "$attempt" -lt 3 ]; then
@@ -69,7 +71,14 @@ install_collections() {
   echo "ВНИМАНИЕ: Galaxy сейчас недоступен, collections не установлены."
   echo "Проверку сервера продолжаю: preflight использует встроенные модули."
   echo "Перед запуском playbooks/vpn-core.yml повторите:"
-  echo "  cd \"$INSTALL_DIR\" && ansible-galaxy collection install -r requirements.yml"
+  echo "  cd \"$INSTALL_DIR\" && .venv/bin/ansible-galaxy collection install -r requirements.yml"
+}
+
+ansible_core_compatible() {
+  [ -x "$ANSIBLE_VENV/bin/python" ] && \
+    "$ANSIBLE_VENV/bin/python" -c \
+      'import ansible, sys; sys.exit(0 if ansible.__version__.startswith("2.17.") else 1)' \
+      >/dev/null 2>&1
 }
 
 if ! need_cmd apt-get; then
@@ -78,17 +87,19 @@ if ! need_cmd apt-get; then
 fi
 
 if [ -n "$SUDO" ]; then
-  log "[1/5] Проверяю sudo-доступ"
+  log "[1/6] Проверяю sudo-доступ"
   $SUDO -v
 fi
 
 MISSING_PACKAGES=()
-need_cmd ansible || MISSING_PACKAGES+=(ansible)
 need_cmd git || MISSING_PACKAGES+=(git)
 need_cmd ssh || MISSING_PACKAGES+=(openssh-client)
 need_cmd python3 || MISSING_PACKAGES+=(python3)
+if ! dpkg-query -W -f='${Status}' python3-venv 2>/dev/null | grep -q 'ok installed'; then
+  MISSING_PACKAGES+=(python3-venv)
+fi
 
-log "[2/5] Проверяю программы на управляющей Ubuntu"
+log "[2/6] Проверяю программы на управляющей Ubuntu"
 if [ "${#MISSING_PACKAGES[@]}" -gt 0 ]; then
   echo "Нужно установить: ${MISSING_PACKAGES[*]}"
   wait_for_apt
@@ -100,7 +111,7 @@ else
   echo "Все нужные программы уже установлены, apt пропускаю."
 fi
 
-log "[3/5] Готовлю SSH-ключ для Ansible"
+log "[3/6] Готовлю SSH-ключ для Ansible"
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
@@ -127,20 +138,36 @@ EOF
 echo
 
 if [ -d "$INSTALL_DIR/.git" ]; then
-  log "[4/5] Обновляю существующий репозиторий: $INSTALL_DIR"
+  log "[4/6] Обновляю существующий репозиторий: $INSTALL_DIR"
   git -C "$INSTALL_DIR" pull --ff-only
 elif [ -e "$INSTALL_DIR" ]; then
   echo "$INSTALL_DIR уже существует, но это не git-репозиторий." >&2
   echo "Переместите эту папку или запустите с VPN_DIR=/another/path." >&2
   exit 1
 else
-  log "[4/5] Скачиваю VPN-репозиторий"
+  log "[4/6] Скачиваю VPN-репозиторий"
   git clone "$REPO_URL" "$INSTALL_DIR"
 fi
 
 cd "$INSTALL_DIR"
 
-log "[5/5] Устанавливаю Ansible collections"
+log "[5/6] Устанавливаю совместимую версию Ansible"
+if [ ! -x "$ANSIBLE_VENV/bin/python" ]; then
+  python3 -m venv "$ANSIBLE_VENV"
+fi
+
+if ansible_core_compatible; then
+  echo "Совместимая версия Ansible уже установлена."
+else
+  if ! "$ANSIBLE_VENV/bin/python" -m pip install --disable-pip-version-check --upgrade "$ANSIBLE_CORE_SPEC"; then
+    echo "Не удалось установить совместимую версию Ansible из PyPI." >&2
+    echo "Проверьте интернет и повторите запуск bootstrap." >&2
+    exit 1
+  fi
+fi
+"$ANSIBLE_VENV/bin/ansible" --version | head -n 1
+
+log "[6/6] Устанавливаю Ansible collections"
 install_collections
 
 log "Управляющая Ubuntu готова"
@@ -149,11 +176,11 @@ cat <<EOF
 Репозиторий:
   $INSTALL_DIR
 
-Публичный SSH-ключ был показан на шаге [3/5].
+Публичный SSH-ключ был показан на шаге [3/6].
 У провайдера добавьте его как SSH-ключ для root.
 Если добавляете вручную, строка должна попасть в /root/.ssh/authorized_keys,
 а не просто лежать отдельным файлом .pub на сервере.
-Готовая команда для уже созданного VPS была показана на шаге [3/5].
+Готовая команда для уже созданного VPS была показана на шаге [3/6].
 После добавления ключа скрипт попросит роль и IP сервера.
 Повторный запуск проверки вручную:
   cd "$INSTALL_DIR"

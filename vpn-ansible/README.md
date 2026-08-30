@@ -6,7 +6,8 @@
 
 1. Откройте свою Ubuntu-машину.
 
-2. Выполните одну команду:
+2. Выполните одну команду. Она установит отдельную совместимую версию Ansible
+   внутри репозитория и не будет зависеть от старого системного пакета Ubuntu:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash

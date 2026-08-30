@@ -44,6 +44,15 @@ esac
 
 cd "$(dirname "$0")/.."
 
+ANSIBLE_BIN="$PWD/.venv/bin/ansible"
+ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
+
+if [ ! -x "$ANSIBLE_BIN" ] || [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
+  echo "Совместимая версия Ansible не установлена." >&2
+  echo "Сначала запустите: VPN_DIR=\"$PWD\" bash scripts/bootstrap-ubuntu-control" >&2
+  exit 1
+fi
+
 cat > inventories/test/hosts.yml <<EOF
 ---
 all:
@@ -68,11 +77,12 @@ fi
 
 echo
 echo "Проверяю SSH/Ansible-доступ к $SERVER_IP ($SERVER_ROLE)"
-ansible -i inventories/test/hosts.yml all -m ping
+"$ANSIBLE_BIN" --version | head -n 1
+"$ANSIBLE_BIN" -i inventories/test/hosts.yml all -m ping
 
 echo
 echo "Запускаю read-only preflight сервера"
-ansible-playbook -i inventories/test/hosts.yml playbooks/preflight.yml
+"$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/preflight.yml
 
 echo
 echo "Готово. Если ошибок нет, отправьте этот вывод инженеру."
