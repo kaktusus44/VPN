@@ -101,6 +101,22 @@ cat <<EOF
   deploy playbooks/vpn-core.yml: выполнен
   preflight после deploy: выполнен
 
+Развернули:
+  AmneziaWG/WireGuard-compatible: awg0, UDP/443
+  DNS для VPN-клиентов: Unbound на 10.8.0.1 и fd00:8::1
+  Резервный канал: Xray VLESS Reality, TCP/8443 xhttp и TCP/8444 tcp
+  Firewall/UFW + fail2ban
+  Клиенты AmneziaVPN/AmneziaWG: 100 штук
+
+Клиентские артефакты на VPS:
+  /var/lib/vpn/amnezia-vpn-links.txt       # 100 ссылок vpn://
+  /var/lib/vpn/amneziawg-client-configs.txt # 100 .awg.conf подряд
+  /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/client-100.awg.conf
+  /var/lib/vpn/client-links.txt             # индекс экспортов + Xray/VLESS links
+
+Следующий этап:
+  мониторинг и остальные сервисы запускаются отдельными playbook/ролями
+
 Повторить:
   cd "$PWD"
   scripts/redeploy-server $SERVER_IP $SERVER_ROLE
