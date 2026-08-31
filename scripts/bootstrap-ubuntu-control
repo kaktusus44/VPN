@@ -6,6 +6,7 @@ INSTALL_DIR="${VPN_DIR:-$HOME/VPN}"
 SSH_KEY_PATH="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
 ANSIBLE_VENV="$INSTALL_DIR/.venv"
 ANSIBLE_CORE_SPEC="ansible-core>=2.17,<2.18"
+APT_PACKAGES_INSTALLED=()
 
 log() {
   printf '\n==> [%s] %s\n' "$(date +%H:%M:%S)" "$*"
@@ -81,6 +82,55 @@ ansible_core_compatible() {
       >/dev/null 2>&1
 }
 
+print_control_summary() {
+  local installed_packages
+
+  if [ "${#APT_PACKAGES_INSTALLED[@]}" -gt 0 ]; then
+    installed_packages="${APT_PACKAGES_INSTALLED[*]}"
+  else
+    installed_packages="ничего, все нужные apt-пакеты уже были на месте"
+  fi
+
+  cat <<EOF
+
+===== ИТОГ ПОДГОТОВКИ УПРАВЛЯЮЩЕЙ UBUNTU =====
+Репозиторий:
+  $INSTALL_DIR
+
+SSH-ключи Ansible:
+  приватный: $SSH_KEY_PATH
+  публичный: $SSH_KEY_PATH.pub
+  права: приватный 600, публичный 644
+
+Что проверено/установлено локально:
+  apt-пакеты этого запуска: $installed_packages
+  Ansible venv: $ANSIBLE_VENV
+  Ansible binary: $ANSIBLE_VENV/bin/ansible
+  Ansible playbook binary: $ANSIBLE_VENV/bin/ansible-playbook
+  Ansible core: $ANSIBLE_CORE_SPEC
+  Ansible collections: requirements.yml
+
+Куда должен попасть публичный ключ на VPS:
+  /root/.ssh/authorized_keys
+
+Повторная проверка сервера:
+  cd "$INSTALL_DIR"
+  scripts/check-server 1.2.3.4 main
+
+Замените 1.2.3.4 на IP сервера.
+Роль укажите main или reserve.
+Не запускайте playbooks/vpn-core.yml без подтверждения инженера.
+===== КОНЕЦ ИТОГА =====
+EOF
+
+  echo
+  "$ANSIBLE_VENV/bin/ansible" --version | head -n 1
+  echo
+  echo "Установленные Ansible collections:"
+  "$ANSIBLE_VENV/bin/ansible-galaxy" collection list 2>/dev/null | grep -E '^(ansible\.posix|community\.general)[[:space:]]' || \
+    echo "  ansible-galaxy collection list недоступен или collections ещё не установлены"
+}
+
 if ! need_cmd apt-get; then
   echo "Этот bootstrap-скрипт поддерживает Ubuntu/Debian с apt-get." >&2
   exit 1
@@ -102,6 +152,7 @@ fi
 log "[2/6] Проверяю программы на управляющей Ubuntu"
 if [ "${#MISSING_PACKAGES[@]}" -gt 0 ]; then
   echo "Нужно установить: ${MISSING_PACKAGES[*]}"
+  APT_PACKAGES_INSTALLED=("${MISSING_PACKAGES[@]}")
   wait_for_apt
   $SUDO apt-get -o DPkg::Lock::Timeout=600 update || \
     echo "apt update завершился с предупреждением. Продолжаю по доступным индексам."
@@ -171,25 +222,7 @@ log "[6/6] Устанавливаю Ansible collections"
 install_collections
 
 log "Управляющая Ubuntu готова"
-cat <<EOF
-
-Репозиторий:
-  $INSTALL_DIR
-
-Публичный SSH-ключ был показан на шаге [3/6].
-У провайдера добавьте его как SSH-ключ для root.
-Если добавляете вручную, строка должна попасть в /root/.ssh/authorized_keys,
-а не просто лежать отдельным файлом .pub на сервере.
-Готовая команда для уже созданного VPS была показана на шаге [3/6].
-После добавления ключа скрипт попросит роль и IP сервера.
-Повторный запуск проверки вручную:
-  cd "$INSTALL_DIR"
-  scripts/check-server 1.2.3.4 main
-
-Замените 1.2.3.4 на IP сервера.
-Роль укажите main или reserve.
-Не запускайте playbooks/vpn-core.yml без подтверждения инженера.
-EOF
+print_control_summary
 
 if [ -r /dev/tty ]; then
   echo
