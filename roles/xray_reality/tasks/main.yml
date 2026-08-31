@@ -59,11 +59,18 @@
 
 - name: Parse Reality private key
   ansible.builtin.set_fact:
-    xray_reality_private_key: "{{ (xray_reality_keys_raw.content | b64decode).splitlines() | select('search', '^Private key:') | first | regex_replace('^Private key: *', '') }}"
-    xray_reality_public_key: "{{ (xray_reality_keys_raw.content | b64decode).splitlines() | select('search', '^Public key:') | first | regex_replace('^Public key: *', '') }}"
+    xray_reality_private_key: "{{ ((xray_reality_keys_raw.content | b64decode).splitlines() | select('search', '(?i)^private[ \\t]*key:') | list | first | default('')) | regex_replace('(?i)^private[ \\t]*key:[ \\t]*', '') }}"
+    xray_reality_public_key: "{{ ((xray_reality_keys_raw.content | b64decode).splitlines() | select('search', '(?i)^public[ \\t]*key:') | list | first | default('')) | regex_replace('(?i)^public[ \\t]*key:[ \\t]*', '') }}"
     xray_client_uuid: "{{ xray_client_uuid_raw.content | b64decode | trim }}"
     xray_reality_short_id: "{{ xray_reality_short_id_raw.content | b64decode | trim }}"
   no_log: true
+
+- name: Validate Reality keypair was parsed
+  ansible.builtin.assert:
+    that:
+      - xray_reality_private_key | length > 0
+      - xray_reality_public_key | length > 0
+    fail_msg: "Could not parse Xray Reality keypair output from /usr/local/bin/xray x25519."
 
 - name: Render Xray config
   ansible.builtin.template:
