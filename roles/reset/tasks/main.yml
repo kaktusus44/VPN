@@ -6,7 +6,7 @@
     state: stopped
   loop:
     - awg-quick@awg0
-    - wg-quick@awg0
+    - wg-quick@wg0
     - xray
     - unbound
     - fail2ban
