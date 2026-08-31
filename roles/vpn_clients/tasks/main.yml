@@ -21,17 +21,6 @@
   changed_when: false
   no_log: true
 
-- name: Set VPN client indexes
-  ansible.builtin.set_fact:
-    vpn_client_indexes: "{{ range(1, (vpn_client_count | int) + 1) | list }}"
-
-- name: Read client private keys
-  ansible.builtin.slurp:
-    src: "/var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
-  register: vpn_client_private_keys_raw
-  loop: "{{ vpn_client_indexes }}"
-  no_log: true
-
 - name: Read Xray client UUID
   ansible.builtin.slurp:
     src: /var/lib/vpn/client-001.xray.uuid
@@ -69,81 +58,17 @@
       - vpn_xray_reality_public_key | length > 0
     fail_msg: "Could not parse Xray Reality public key/password output from /usr/local/bin/xray x25519."
 
-- name: Render client WireGuard-compatible configs
-  ansible.builtin.template:
-    src: client-001.awg.conf.j2
-    dest: "/var/lib/vpn/client-{{ '%03d' | format(item.item) }}.awg.conf"
+- name: Add Xray links to client export index
+  ansible.builtin.blockinfile:
+    path: "{{ export_client_links_path }}"
+    create: true
     owner: root
     group: root
     mode: "0600"
-  vars:
-    vpn_client_index: "{{ item.item }}"
-    vpn_client_private_key: "{{ item.content | b64decode | trim }}"
-  loop: "{{ vpn_client_private_keys_raw.results }}"
-  no_log: true
-
-- name: Render all AmneziaWG client configs bundle
-  ansible.builtin.template:
-    src: amneziawg-client-configs.txt.j2
-    dest: "{{ export_amneziawg_configs_path }}"
-    owner: root
-    group: root
-    mode: "0600"
-  no_log: true
-
-- name: Render AmneziaVPN vpn links
-  ansible.builtin.shell: |
-    set -euo pipefail
-    python3 - <<'PY'
-    import base64
-    import json
-    import os
-    from pathlib import Path
-    import zlib
-
-    count = int(os.environ["VPN_CLIENT_COUNT"])
-    role = os.environ["VPN_SERVER_ROLE"]
-    output_path = Path(os.environ["EXPORT_AMNEZIA_VPN_LINKS_PATH"])
-
-    lines = []
-    for index in range(1, count + 1):
-        client_id = f"client-{index:03d}"
-        config = Path(f"/var/lib/vpn/{client_id}.awg.conf").read_text()
-        payload = {
-            "dns1": "{{ unbound_ipv4_listen }}",
-            "dns2": "{{ unbound_ipv6_listen if vpn_enable_ipv6 | bool else '' }}",
-            "defaultContainer": "awg",
-            "containers": [
-                {
-                    "container": "awg",
-                    "awg": {
-                        "last_config": json.dumps({"config": config}, separators=(",", ":")),
-                    },
-                },
-            ],
-        }
-        raw = json.dumps(payload, separators=(",", ":")).encode()
-        compressed = len(raw).to_bytes(4, "big") + zlib.compress(raw)
-        link = "vpn://" + base64.urlsafe_b64encode(compressed).decode().rstrip("=")
-        lines.append(f"{client_id} {role} amnezia_vpn {link}")
-
-    output_path.write_text("\n".join(lines) + "\n")
-    output_path.chmod(0o600)
-    PY
-  args:
-    executable: /bin/bash
-  environment:
-    VPN_CLIENT_COUNT: "{{ vpn_client_count | int }}"
-    VPN_SERVER_ROLE: "{{ vpn_server_role }}"
-    EXPORT_AMNEZIA_VPN_LINKS_PATH: "{{ export_amnezia_vpn_links_path }}"
-
-- name: Render ready-to-copy client links
-  ansible.builtin.template:
-    src: client-links.txt.j2
-    dest: "{{ export_client_links_path }}"
-    owner: root
-    group: root
-    mode: "0600"
+    marker: "# {mark} XRAY CLIENT LINKS"
+    block: |
+      client-001 {{ vpn_server_role }} vless_xhttp vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_xhttp_port }}?type=xhttp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-xhttp
+      client-001 {{ vpn_server_role }} vless_tcp vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_tcp_port }}?type=tcp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&flow=xtls-rprx-vision&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-tcp
   no_log: true
 
 - name: Show client export summary

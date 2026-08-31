@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+import base64
+import json
+from pathlib import Path
+import subprocess
+import zlib
+
+
+STATE_DIR = Path("/var/lib/vpn")
+WG_CONFIG = Path("/etc/wireguard/{{ awg_interface }}.conf")
+SERVER_KEY = STATE_DIR / "{{ awg_interface }}.server.key"
+CLIENT_COUNT = {{ vpn_client_count | int }}
+VPN_ROLE = "{{ vpn_server_role }}"
+ENDPOINT = "{{ vpn_public_endpoint }}:{{ awg_port }}"
+EXT_IFACE = "{{ ansible_default_ipv4.interface }}"
+ENABLE_IPV6 = {{ 'True' if vpn_enable_ipv6 | bool else 'False' }}
+DNS_IPV4 = "{{ unbound_ipv4_listen }}"
+DNS_IPV6 = "{{ unbound_ipv6_listen }}"
+AMNEZIA_VPN_LINKS = Path("{{ export_amnezia_vpn_links_path }}")
+AMNEZIAWG_CONFIGS = Path("{{ export_amneziawg_configs_path }}")
+CLIENT_LINKS = Path("{{ export_client_links_path }}")
+
+
+def run(args, stdin=None):
+    result = subprocess.run(
+        args,
+        input=stdin,
+        text=True,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return result.stdout.strip()
+
+
+def write_if_changed(path, content, mode=0o600):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = path.read_text() if path.exists() else None
+    if old != content:
+        path.write_text(content)
+        path.chmod(mode)
+        return True
+    path.chmod(mode)
+    return False
+
+
+def qcompress(raw):
+    return len(raw).to_bytes(4, "big") + zlib.compress(raw)
+
+
+def amnezia_vpn_link(config):
+    payload = {
+        "dns1": DNS_IPV4,
+        "dns2": DNS_IPV6 if ENABLE_IPV6 else "",
+        "defaultContainer": "awg",
+        "containers": [
+            {
+                "container": "awg",
+                "awg": {
+                    "last_config": json.dumps({"config": config}, separators=(",", ":")),
+                },
+            },
+        ],
+    }
+    raw = json.dumps(payload, separators=(",", ":")).encode()
+    return "vpn://" + base64.urlsafe_b64encode(qcompress(raw)).decode().rstrip("=")
+
+
+changed = False
+STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+server_private = SERVER_KEY.read_text().strip()
+server_public = run(["wg", "pubkey"], stdin=server_private)
+
+server_lines = [
+    "[Interface]",
+    "Address = {{ awg_ipv4_address }}{{ ', ' ~ awg_ipv6_address if vpn_enable_ipv6 | bool else '' }}",
+    "ListenPort = {{ awg_port }}",
+    f"PrivateKey = {server_private}",
+    "PostUp = iptables -t nat -A POSTROUTING -s {{ awg_ipv4_network }} -o " + EXT_IFACE + " -j MASQUERADE",
+    "PostDown = iptables -t nat -D POSTROUTING -s {{ awg_ipv4_network }} -o " + EXT_IFACE + " -j MASQUERADE",
+    "",
+]
+
+all_configs = []
+vpn_links = []
+client_index_lines = [
+    f"amnezia_vpn_links {VPN_ROLE} {AMNEZIA_VPN_LINKS}",
+    f"amneziawg_config_bundle {VPN_ROLE} {AMNEZIAWG_CONFIGS}",
+]
+
+for index in range(1, CLIENT_COUNT + 1):
+    client_id = f"client-{index:03d}"
+    client_key_path = STATE_DIR / f"{client_id}.key"
+    if not client_key_path.exists():
+        client_key_path.write_text(run(["wg", "genkey"]) + "\n")
+        client_key_path.chmod(0o600)
+        changed = True
+    else:
+        client_key_path.chmod(0o600)
+
+    client_private = client_key_path.read_text().strip()
+    client_public = run(["wg", "pubkey"], stdin=client_private)
+    ipv4 = f"10.8.0.{index + 1}/32"
+    ipv6 = f"fd00:8::{index + 1}/128"
+    address = ipv4 + (f", {ipv6}" if ENABLE_IPV6 else "")
+    dns = DNS_IPV4 + (f", {DNS_IPV6}" if ENABLE_IPV6 else "")
+    allowed_ips = "0.0.0.0/0" + (", ::/0" if ENABLE_IPV6 else "")
+
+    server_lines.extend(
+        [
+            "[Peer]",
+            f"# {client_id}",
+            f"PublicKey = {client_public}",
+            f"AllowedIPs = {address}",
+            "",
+        ]
+    )
+
+    client_config = "\n".join(
+        [
+            "[Interface]",
+            f"PrivateKey = {client_private}",
+            f"Address = {address}",
+            f"DNS = {dns}",
+            "",
+            "[Peer]",
+            f"PublicKey = {server_public}",
+            f"AllowedIPs = {allowed_ips}",
+            f"Endpoint = {ENDPOINT}",
+            "PersistentKeepalive = 25",
+            "",
+        ]
+    )
+    changed = write_if_changed(STATE_DIR / f"{client_id}.awg.conf", client_config) or changed
+    all_configs.append(f"### {client_id} {VPN_ROLE} amneziawg_config\n{client_config}")
+    vpn_links.append(f"{client_id} {VPN_ROLE} amnezia_vpn {amnezia_vpn_link(client_config)}")
+    client_index_lines.append(f"{client_id} {VPN_ROLE} amneziawg_config /var/lib/vpn/{client_id}.awg.conf")
+
+changed = write_if_changed(WG_CONFIG, "\n".join(server_lines), mode=0o600) or changed
+changed = write_if_changed(AMNEZIAWG_CONFIGS, "\n".join(all_configs) + "\n", mode=0o600) or changed
+changed = write_if_changed(AMNEZIA_VPN_LINKS, "\n".join(vpn_links) + "\n", mode=0o600) or changed
+xray_block = ""
+if CLIENT_LINKS.exists():
+    existing_client_links = CLIENT_LINKS.read_text()
+    marker_index = existing_client_links.find("# BEGIN XRAY CLIENT LINKS")
+    if marker_index >= 0:
+        xray_block = "\n" + existing_client_links[marker_index:].strip() + "\n"
+changed = write_if_changed(CLIENT_LINKS, "\n".join(client_index_lines) + "\n" + xray_block, mode=0o600) or changed
+
+print(f"changed={'true' if changed else 'false'} clients={CLIENT_COUNT} vpn_links={AMNEZIA_VPN_LINKS}")

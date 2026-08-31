@@ -67,47 +67,18 @@
   changed_when: false
   no_log: true
 
-- name: Set VPN client indexes
-  ansible.builtin.set_fact:
-    vpn_client_indexes: "{{ range(1, (vpn_client_count | int) + 1) | list }}"
-
-- name: Generate client private keys
-  ansible.builtin.shell: "wg genkey > /var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
-  args:
-    creates: "/var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
-  loop: "{{ vpn_client_indexes }}"
-
-- name: Secure client private keys
-  ansible.builtin.file:
-    path: "/var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
-    owner: root
-    group: root
-    mode: "0600"
-  loop: "{{ vpn_client_indexes }}"
-
-- name: Read client private keys
-  ansible.builtin.slurp:
-    src: "/var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
-  register: awg_client_private_keys_raw
-  loop: "{{ vpn_client_indexes }}"
-  no_log: true
-
-- name: Derive client public keys
-  ansible.builtin.command: "wg pubkey"
-  args:
-    stdin: "{{ item.content | b64decode }}"
-  register: awg_client_public_keys
-  loop: "{{ awg_client_private_keys_raw.results }}"
-  changed_when: false
-  no_log: true
-
-- name: Render server interface config
+- name: Install Amnezia client generator
   ansible.builtin.template:
-    src: awg0.conf.j2
-    dest: "/etc/wireguard/{{ awg_interface }}.conf"
+    src: generate-amnezia-clients.py.j2
+    dest: /usr/local/sbin/vpn-generate-amnezia-clients
     owner: root
     group: root
-    mode: "0600"
+    mode: "0700"
+
+- name: Generate Amnezia clients on VPS
+  ansible.builtin.command: /usr/local/sbin/vpn-generate-amnezia-clients
+  register: amnezia_client_generation
+  changed_when: "'changed=true' in amnezia_client_generation.stdout"
   notify: Restart awg interface
 
 - name: Enable server interface
