@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SERVER_IP="${1:-}"
+SERVER_ROLE="${2:-}"
+
+if [ -z "$SERVER_IP" ]; then
+  echo "Использование: scripts/redeploy-server <ip-сервера> [main|reserve]" >&2
+  echo "Пример: scripts/redeploy-server 108.165.33.37 main" >&2
+  exit 1
+fi
+
+case "$SERVER_ROLE" in
+  main|reserve) ;;
+  "")
+    SERVER_ROLE="reserve"
+    ;;
+  *)
+    echo "Роль должна быть main или reserve, получено: $SERVER_ROLE" >&2
+    exit 1
+    ;;
+esac
+
+cd "$(dirname "$0")/.."
+
+ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
+
+if [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
+  echo "Совместимая версия Ansible не установлена." >&2
+  echo "Сначала запустите: VPN_DIR=\"$PWD\" bash scripts/bootstrap-ubuntu-control" >&2
+  exit 1
+fi
+
+cat <<EOF
+===== DESTRUCTIVE REDEPLOY =====
+Сервер:
+  роль: $SERVER_ROLE
+  IP: $SERVER_IP
+
+Что произойдёт:
+  1. read-only preflight
+  2. destructive reset управляемого VPN-стека
+  3. deploy playbooks/vpn-core.yml
+  4. итоговый read-only preflight
+
+Что reset удаляет/останавливает:
+  awg/wg/xray/unbound/fail2ban/vpn-custom-exporter
+  UFW rules/package
+  управляемые VPN config files и /var/lib/vpn
+
+Что reset НЕ трогает:
+  SSH server
+  /root/.ssh/authorized_keys
+  локальный приватный ключ Ansible
+
+Важно:
+  текущий vpn-core.yml пока разворачивает только base/firewall/fail2ban.
+  роли amneziawg/xray/unbound/vpn_clients ещё не реализованы.
+===== END WARNING =====
+EOF
+
+if [ "${VPN_RESET_CONFIRM:-}" != "DESTROY" ]; then
+  if [ ! -r /dev/tty ]; then
+    echo "Для destructive redeploy задайте VPN_RESET_CONFIRM=DESTROY." >&2
+    exit 1
+  fi
+
+  read -r -p "Введите DESTROY для удаления и повторного развёртывания: " RESET_CONFIRM </dev/tty
+  if [ "$RESET_CONFIRM" != "DESTROY" ]; then
+    echo "Отменено: подтверждение не совпало." >&2
+    exit 1
+  fi
+fi
+
+echo
+echo "==> [1/4] Preflight до reset"
+scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
+
+echo
+echo "==> [2/4] Destroy managed VPN stack"
+"$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/reset-vpn.yml -e vpn_reset_confirm=DESTROY
+
+echo
+echo "==> [3/4] Deploy current managed VPN stack"
+"$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/vpn-core.yml
+
+echo
+echo "==> [4/4] Preflight после deploy"
+scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
+
+cat <<EOF
+
+===== ИТОГ REDEPLOY =====
+Сервер:
+  роль: $SERVER_ROLE
+  IP: $SERVER_IP
+
+Что сделано:
+  preflight до reset: выполнен
+  reset управляемого VPN-стека: выполнен
+  deploy playbooks/vpn-core.yml: выполнен
+  preflight после deploy: выполнен
+
+Повторить:
+  cd "$PWD"
+  scripts/redeploy-server $SERVER_IP $SERVER_ROLE
+===== КОНЕЦ ИТОГА =====
+EOF

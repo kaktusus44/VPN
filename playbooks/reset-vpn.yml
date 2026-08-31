@@ -1,0 +1,14 @@
+---
+- name: Destroy managed VPN stack
+  hosts: vpn_servers
+  gather_facts: true
+  become: true
+  pre_tasks:
+    - name: Require explicit destructive reset confirmation
+      ansible.builtin.assert:
+        that:
+          - vpn_reset_confirm | default('') == 'DESTROY'
+        fail_msg: "Refusing destructive reset: pass -e vpn_reset_confirm=DESTROY"
+        success_msg: "Destructive reset confirmed."
+  roles:
+    - reset
