@@ -54,8 +54,8 @@ cat <<EOF
   локальный приватный ключ Ansible
 
 Важно:
-  текущий vpn-core.yml пока разворачивает только base/firewall/fail2ban.
-  роли amneziawg/xray/unbound/vpn_clients ещё не реализованы.
+  текущий vpn-core.yml разворачивает полный MVP: base/firewall/fail2ban,
+  WireGuard-compatible awg0, Unbound, Xray Reality и client export.
 ===== END WARNING =====
 EOF
 
