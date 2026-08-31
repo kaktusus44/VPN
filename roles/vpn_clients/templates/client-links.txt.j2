@@ -1,0 +1,3 @@
+client-001 {{ vpn_server_role }} amneziawg_config /var/lib/vpn/client-001.awg.conf
+client-001 {{ vpn_server_role }} vless_xhttp vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_xhttp_port }}?type=xhttp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-xhttp
+client-001 {{ vpn_server_role }} vless_tcp vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_tcp_port }}?type=tcp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&flow=xtls-rprx-vision&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-tcp

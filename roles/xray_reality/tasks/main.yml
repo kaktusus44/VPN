@@ -1,5 +1,85 @@
 ---
-- name: Placeholder for Xray Reality reserve channel
-  ansible.builtin.debug:
-    msg: "Xray role will install a pinned version, render config, validate it, and restart safely."
+- name: Install Xray installer dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - unzip
+      - ca-certificates
+      - openssl
+    state: present
+    update_cache: true
 
+- name: Install Xray core with official installer
+  ansible.builtin.shell: >
+    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
+    @ install --version {{ xray_version }}
+  args:
+    creates: /usr/local/bin/xray
+
+- name: Create VPN state directory
+  ansible.builtin.file:
+    path: /var/lib/vpn
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Generate Xray client UUID
+  ansible.builtin.shell: "/usr/local/bin/xray uuid > /var/lib/vpn/client-001.xray.uuid"
+  args:
+    creates: /var/lib/vpn/client-001.xray.uuid
+
+- name: Generate Reality keypair
+  ansible.builtin.shell: "/usr/local/bin/xray x25519 > /var/lib/vpn/xray-reality.keys"
+  args:
+    creates: /var/lib/vpn/xray-reality.keys
+
+- name: Generate Reality short ID
+  ansible.builtin.shell: "openssl rand -hex 8 > /var/lib/vpn/xray-reality.shortid"
+  args:
+    creates: /var/lib/vpn/xray-reality.shortid
+
+- name: Read Xray client UUID
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/client-001.xray.uuid
+  register: xray_client_uuid_raw
+  no_log: true
+
+- name: Read Reality keypair
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/xray-reality.keys
+  register: xray_reality_keys_raw
+  no_log: true
+
+- name: Read Reality short ID
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/xray-reality.shortid
+  register: xray_reality_short_id_raw
+  no_log: true
+
+- name: Parse Reality private key
+  ansible.builtin.set_fact:
+    xray_reality_private_key: "{{ (xray_reality_keys_raw.content | b64decode).splitlines() | select('search', '^Private key:') | first | regex_replace('^Private key: *', '') }}"
+    xray_reality_public_key: "{{ (xray_reality_keys_raw.content | b64decode).splitlines() | select('search', '^Public key:') | first | regex_replace('^Public key: *', '') }}"
+    xray_client_uuid: "{{ xray_client_uuid_raw.content | b64decode | trim }}"
+    xray_reality_short_id: "{{ xray_reality_short_id_raw.content | b64decode | trim }}"
+  no_log: true
+
+- name: Render Xray config
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: /usr/local/etc/xray/config.json
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart xray
+
+- name: Validate Xray config
+  ansible.builtin.command: /usr/local/bin/xray run -test -config /usr/local/etc/xray/config.json
+  changed_when: false
+
+- name: Enable Xray
+  ansible.builtin.systemd:
+    name: xray
+    enabled: true
+    state: started

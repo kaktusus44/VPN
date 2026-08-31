@@ -1,5 +1,91 @@
 ---
-- name: Placeholder for AmneziaWG deployment
-  ansible.builtin.debug:
-    msg: "AmneziaWG role will install packages, render awg0.conf, enable awg-quick@awg0, and validate runtime."
+- name: Install WireGuard-compatible packages
+  ansible.builtin.apt:
+    name:
+      - wireguard-tools
+      - iptables
+    state: present
+    update_cache: true
 
+- name: Create VPN state directory
+  ansible.builtin.file:
+    path: /var/lib/vpn
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Create WireGuard config directory
+  ansible.builtin.file:
+    path: /etc/wireguard
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Generate server private key
+  ansible.builtin.shell: "wg genkey > /var/lib/vpn/{{ awg_interface }}.server.key"
+  args:
+    creates: "/var/lib/vpn/{{ awg_interface }}.server.key"
+
+- name: Secure server private key
+  ansible.builtin.file:
+    path: "/var/lib/vpn/{{ awg_interface }}.server.key"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read server private key
+  ansible.builtin.slurp:
+    src: "/var/lib/vpn/{{ awg_interface }}.server.key"
+  register: awg_server_private_key_raw
+  no_log: true
+
+- name: Derive server public key
+  ansible.builtin.command: "wg pubkey"
+  args:
+    stdin: "{{ awg_server_private_key_raw.content | b64decode }}"
+  register: awg_server_public_key
+  changed_when: false
+  no_log: true
+
+- name: Generate first client private key
+  ansible.builtin.shell: "wg genkey > /var/lib/vpn/client-001.key"
+  args:
+    creates: /var/lib/vpn/client-001.key
+
+- name: Secure first client private key
+  ansible.builtin.file:
+    path: /var/lib/vpn/client-001.key
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read first client private key
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/client-001.key
+  register: awg_client_private_key_raw
+  no_log: true
+
+- name: Derive first client public key
+  ansible.builtin.command: "wg pubkey"
+  args:
+    stdin: "{{ awg_client_private_key_raw.content | b64decode }}"
+  register: awg_client_public_key
+  changed_when: false
+  no_log: true
+
+- name: Render server interface config
+  ansible.builtin.template:
+    src: awg0.conf.j2
+    dest: "/etc/wireguard/{{ awg_interface }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart awg interface
+
+- name: Enable server interface
+  ansible.builtin.systemd:
+    name: "wg-quick@{{ awg_interface }}"
+    enabled: true
+    state: started

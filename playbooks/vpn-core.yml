@@ -7,8 +7,7 @@
     - base
     - firewall
     - fail2ban
-    # - amneziawg
-    # - unbound_dns
-    # - xray_reality
-    # - vpn_clients
-
+    - amneziawg
+    - unbound_dns
+    - xray_reality
+    - vpn_clients

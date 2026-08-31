@@ -1,5 +1,80 @@
 ---
-- name: Placeholder for VPN client lifecycle
-  ansible.builtin.debug:
-    msg: "Client role will add/delete AWG peers and Xray clients, then refresh ready-link export."
+- name: Ensure VPN state directory exists
+  ansible.builtin.file:
+    path: /var/lib/vpn
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
 
+- name: Read first client private key
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/client-001.key
+  register: vpn_client_private_key_raw
+  no_log: true
+
+- name: Read server private key
+  ansible.builtin.slurp:
+    src: "/var/lib/vpn/{{ awg_interface }}.server.key"
+  register: vpn_server_private_key_raw
+  no_log: true
+
+- name: Derive server public key
+  ansible.builtin.command: "wg pubkey"
+  args:
+    stdin: "{{ vpn_server_private_key_raw.content | b64decode }}"
+  register: vpn_server_public_key
+  changed_when: false
+  no_log: true
+
+- name: Read Xray client UUID
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/client-001.xray.uuid
+  register: vpn_xray_client_uuid_raw
+  no_log: true
+
+- name: Read Reality keypair
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/xray-reality.keys
+  register: vpn_xray_reality_keys_raw
+  no_log: true
+
+- name: Read Reality short ID
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/xray-reality.shortid
+  register: vpn_xray_reality_short_id_raw
+  no_log: true
+
+- name: Set client export facts
+  ansible.builtin.set_fact:
+    vpn_client_private_key: "{{ vpn_client_private_key_raw.content | b64decode | trim }}"
+    vpn_server_public_key: "{{ vpn_server_public_key.stdout }}"
+    vpn_xray_client_uuid: "{{ vpn_xray_client_uuid_raw.content | b64decode | trim }}"
+    vpn_xray_reality_public_key: "{{ (vpn_xray_reality_keys_raw.content | b64decode).splitlines() | select('search', '^Public key:') | first | regex_replace('^Public key: *', '') }}"
+    vpn_xray_reality_short_id: "{{ vpn_xray_reality_short_id_raw.content | b64decode | trim }}"
+  no_log: true
+
+- name: Render first client WireGuard-compatible config
+  ansible.builtin.template:
+    src: client-001.awg.conf.j2
+    dest: /var/lib/vpn/client-001.awg.conf
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render ready-to-copy client links
+  ansible.builtin.template:
+    src: client-links.txt.j2
+    dest: "{{ export_client_links_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Show client export summary
+  ansible.builtin.debug:
+    msg:
+      - "Client export created: {{ export_client_links_path }}"
+      - "WireGuard-compatible config created: /var/lib/vpn/client-001.awg.conf"
+      - "Use root SSH to read the export file; secrets are not printed in Ansible output."

@@ -1,5 +1,25 @@
 ---
-- name: Placeholder for Unbound VPN DNS
-  ansible.builtin.debug:
-    msg: "Unbound role will listen only on VPN addresses and refuse non-VPN clients."
+- name: Install Unbound
+  ansible.builtin.apt:
+    name: unbound
+    state: present
+    update_cache: true
 
+- name: Render VPN-only Unbound config
+  ansible.builtin.template:
+    src: vpn.conf.j2
+    dest: /etc/unbound/unbound.conf.d/vpn.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart unbound
+
+- name: Validate Unbound config
+  ansible.builtin.command: unbound-checkconf
+  changed_when: false
+
+- name: Enable Unbound
+  ansible.builtin.systemd:
+    name: unbound
+    enabled: true
+    state: started
