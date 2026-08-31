@@ -18,3 +18,4 @@ xray_tcp_port: 8444
 
 export_client_links_path: /var/lib/vpn/client-links.txt
 export_amneziawg_configs_path: /var/lib/vpn/amneziawg-client-configs.txt
+export_amnezia_vpn_links_path: /var/lib/vpn/amnezia-vpn-links.txt

@@ -91,6 +91,52 @@
     mode: "0600"
   no_log: true
 
+- name: Render AmneziaVPN vpn links
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import base64
+    import json
+    import os
+    from pathlib import Path
+    import zlib
+
+    count = int(os.environ["VPN_CLIENT_COUNT"])
+    role = os.environ["VPN_SERVER_ROLE"]
+    output_path = Path(os.environ["EXPORT_AMNEZIA_VPN_LINKS_PATH"])
+
+    lines = []
+    for index in range(1, count + 1):
+        client_id = f"client-{index:03d}"
+        config = Path(f"/var/lib/vpn/{client_id}.awg.conf").read_text()
+        payload = {
+            "dns1": "{{ unbound_ipv4_listen }}",
+            "dns2": "{{ unbound_ipv6_listen if vpn_enable_ipv6 | bool else '' }}",
+            "defaultContainer": "awg",
+            "containers": [
+                {
+                    "container": "awg",
+                    "awg": {
+                        "last_config": json.dumps({"config": config}, separators=(",", ":")),
+                    },
+                },
+            ],
+        }
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        compressed = len(raw).to_bytes(4, "big") + zlib.compress(raw)
+        link = "vpn://" + base64.urlsafe_b64encode(compressed).decode().rstrip("=")
+        lines.append(f"{client_id} {role} amnezia_vpn {link}")
+
+    output_path.write_text("\n".join(lines) + "\n")
+    output_path.chmod(0o600)
+    PY
+  args:
+    executable: /bin/bash
+  environment:
+    VPN_CLIENT_COUNT: "{{ vpn_client_count | int }}"
+    VPN_SERVER_ROLE: "{{ vpn_server_role }}"
+    EXPORT_AMNEZIA_VPN_LINKS_PATH: "{{ export_amnezia_vpn_links_path }}"
+
 - name: Render ready-to-copy client links
   ansible.builtin.template:
     src: client-links.txt.j2
@@ -105,5 +151,6 @@
     msg:
       - "Client export created: {{ export_client_links_path }}"
       - "AmneziaWG client config bundle created: {{ export_amneziawg_configs_path }}"
+      - "AmneziaVPN vpn:// links created: {{ export_amnezia_vpn_links_path }}"
       - "WireGuard-compatible configs created: /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/client-{{ '%03d' | format(vpn_client_count | int) }}.awg.conf"
       - "Use root SSH to read the export file; secrets are not printed in Ansible output."

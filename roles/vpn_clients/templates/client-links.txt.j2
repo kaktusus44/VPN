@@ -1,3 +1,5 @@
+amnezia_vpn_links {{ vpn_server_role }} {{ export_amnezia_vpn_links_path }}
+amneziawg_config_bundle {{ vpn_server_role }} {{ export_amneziawg_configs_path }}
 {% for client_index in vpn_client_indexes %}
 client-{{ '%03d' | format(client_index) }} {{ vpn_server_role }} amneziawg_config /var/lib/vpn/client-{{ '%03d' | format(client_index) }}.awg.conf
 {% endfor %}
