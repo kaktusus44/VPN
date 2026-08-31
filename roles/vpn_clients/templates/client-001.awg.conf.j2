@@ -1,10 +1,11 @@
+#jinja2: trim_blocks: False
 [Interface]
 PrivateKey = {{ vpn_client_private_key }}
-Address = 10.8.0.2/32{% if vpn_enable_ipv6 | bool %}, fd00:8::2/128{% endif %}
-DNS = {{ unbound_ipv4_listen }}{% if vpn_enable_ipv6 | bool %}, {{ unbound_ipv6_listen }}{% endif %}
+Address = 10.8.0.2/32{{ ', fd00:8::2/128' if vpn_enable_ipv6 | bool else '' }}
+DNS = {{ unbound_ipv4_listen }}{{ ', ' ~ unbound_ipv6_listen if vpn_enable_ipv6 | bool else '' }}
 
 [Peer]
 PublicKey = {{ vpn_server_public_key }}
-AllowedIPs = 0.0.0.0/0{% if vpn_enable_ipv6 | bool %}, ::/0{% endif %}
+AllowedIPs = 0.0.0.0/0{{ ', ::/0' if vpn_enable_ipv6 | bool else '' }}
 Endpoint = {{ vpn_public_endpoint }}:{{ awg_port }}
 PersistentKeepalive = 25

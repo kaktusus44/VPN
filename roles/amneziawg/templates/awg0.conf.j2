@@ -1,5 +1,6 @@
+#jinja2: trim_blocks: False
 [Interface]
-Address = {{ awg_ipv4_address }}{% if vpn_enable_ipv6 | bool %}, {{ awg_ipv6_address }}{% endif %}
+Address = {{ awg_ipv4_address }}{{ ', ' ~ awg_ipv6_address if vpn_enable_ipv6 | bool else '' }}
 ListenPort = {{ awg_port }}
 PrivateKey = {{ awg_server_private_key_raw.content | b64decode | trim }}
 PostUp = iptables -t nat -A POSTROUTING -s {{ awg_ipv4_network }} -o {{ ansible_default_ipv4.interface }} -j MASQUERADE
@@ -8,4 +9,4 @@ PostDown = iptables -t nat -D POSTROUTING -s {{ awg_ipv4_network }} -o {{ ansibl
 [Peer]
 # client-001
 PublicKey = {{ awg_client_public_key.stdout }}
-AllowedIPs = 10.8.0.2/32{% if vpn_enable_ipv6 | bool %}, fd00:8::2/128{% endif %}
+AllowedIPs = 10.8.0.2/32{{ ', fd00:8::2/128' if vpn_enable_ipv6 | bool else '' }}

@@ -1,3 +1,4 @@
+#jinja2: trim_blocks: False
 server:
   interface: {{ unbound_ipv4_listen }}
 {% if vpn_enable_ipv6 | bool %}
