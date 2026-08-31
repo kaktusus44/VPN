@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ARG1="${1:-}"
+ARG2="${2:-}"
+SERVER_ROLE=""
+SERVER_IP=""
+CHECK_ATTEMPTS="${VPN_CHECK_ATTEMPTS:-5}"
+CHECK_DELAY_SECONDS="${VPN_CHECK_DELAY_SECONDS:-10}"
+
+ask_tty() {
+  local prompt="$1"
+  local answer
+  if [ ! -r /dev/tty ]; then
+    return 1
+  fi
+  read -r -p "$prompt" answer </dev/tty
+  printf '%s' "$answer"
+}
+
+if [[ "$ARG1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+  SERVER_IP="$ARG1"
+  SERVER_ROLE="$ARG2"
+else
+  SERVER_ROLE="$ARG1"
+  SERVER_IP="$ARG2"
+fi
+
+if [ -z "$SERVER_ROLE" ]; then
+  SERVER_ROLE="$(ask_tty "Какой сервер разворачиваем [main/reserve]: " || true)"
+fi
+
+case "$SERVER_ROLE" in
+  main|reserve) ;;
+  "")
+    SERVER_ROLE="main"
+    ;;
+  *)
+    echo "Роль должна быть main или reserve, получено: $SERVER_ROLE" >&2
+    exit 1
+    ;;
+esac
+
+if [ -z "$SERVER_IP" ]; then
+  SERVER_IP="$(ask_tty "IP сервера: " || true)"
+fi
+
+if [ -z "$SERVER_IP" ]; then
+  echo "IP сервера обязателен." >&2
+  echo "Использование: scripts/deploy-server [main|reserve] <ip-сервера>" >&2
+  echo "Также можно: scripts/deploy-server <ip-сервера> [main|reserve]" >&2
+  exit 1
+fi
+
+if ! [[ "$SERVER_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+  echo "Ожидался IPv4-адрес, получено: $SERVER_IP" >&2
+  exit 1
+fi
+
+cd "$(dirname "$0")/.."
+
+ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
+
+if [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
+  echo "Совместимая версия Ansible не установлена." >&2
+  echo "Сначала запустите: VPN_DIR=\"$PWD\" bash scripts/bootstrap-ubuntu-control" >&2
+  exit 1
+fi
+
+cat <<EOF
+===== VPN DEPLOY =====
+Сервер:
+  роль: $SERVER_ROLE
+  IP: $SERVER_IP
+
+Что произойдёт:
+  1. SSH/Ansible preflight
+  2. deploy всего playbooks/vpn-core.yml
+  3. проверка результата с retry
+
+Пользователю не нужно руками указывать Ansible inventory:
+  scripts/check-server создаст inventories/test/hosts.yml внутри репозитория.
+===== КОНЕЦ ВВОДНЫХ =====
+EOF
+
+echo
+echo "==> [1/3] Preflight"
+scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
+
+echo
+echo "==> [2/3] Deploy full VPN core"
+"$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/vpn-core.yml
+
+echo
+echo "==> [3/3] Проверка результата"
+for attempt in $(seq 1 "$CHECK_ATTEMPTS"); do
+  echo "Проверка $attempt/$CHECK_ATTEMPTS"
+  if scripts/check-server "$SERVER_IP" "$SERVER_ROLE"; then
+    cat <<EOF
+
+===== ИТОГ DEPLOY =====
+Сервер:
+  роль: $SERVER_ROLE
+  IP: $SERVER_IP
+
+Deploy завершён.
+Проверка результата успешна.
+
+Клиентские артефакты на VPS:
+  /var/lib/vpn/client-001.awg.conf
+  /var/lib/vpn/client-links.txt
+===== КОНЕЦ ИТОГА =====
+EOF
+    exit 0
+  fi
+
+  if [ "$attempt" -lt "$CHECK_ATTEMPTS" ]; then
+    echo "Проверка не прошла, повтор через $CHECK_DELAY_SECONDS секунд..."
+    sleep "$CHECK_DELAY_SECONDS"
+  fi
+done
+
+echo "Deploy выполнен, но итоговая проверка не прошла за $CHECK_ATTEMPTS попыток." >&2
+exit 1

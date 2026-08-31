@@ -113,13 +113,12 @@ SSH-ключи Ansible:
 Куда должен попасть публичный ключ на VPS:
   /root/.ssh/authorized_keys
 
-Повторная проверка сервера:
+Запуск развёртывания:
   cd "$INSTALL_DIR"
-  scripts/check-server 1.2.3.4 main
+  scripts/deploy-server main 1.2.3.4
 
 Замените 1.2.3.4 на IP сервера.
 Роль укажите main или reserve.
-Не запускайте playbooks/vpn-core.yml без подтверждения инженера.
 ===== КОНЕЦ ИТОГА =====
 EOF
 
@@ -229,5 +228,5 @@ if [ -r /dev/tty ]; then
   ask_tty "Добавьте ключ у провайдера или выполните команду на VPS, затем нажмите Enter..." >/dev/null
   SERVER_ROLE="$(ask_tty "Какой сервер разворачиваем [main/reserve]: ")"
   SERVER_IP="$(ask_tty "IP сервера: ")"
-  "$INSTALL_DIR/scripts/check-server" "$SERVER_IP" "$SERVER_ROLE"
+  "$INSTALL_DIR/scripts/deploy-server" "$SERVER_ROLE" "$SERVER_IP"
 fi
