@@ -55,7 +55,7 @@
     vpn_client_private_key: "{{ vpn_client_private_key_raw.content | b64decode | trim }}"
     vpn_server_public_key: "{{ vpn_server_public_key.stdout }}"
     vpn_xray_client_uuid: "{{ vpn_xray_client_uuid_raw.content | b64decode | trim }}"
-    vpn_xray_reality_public_key: "{{ (vpn_xray_reality_key_lines | select('search', '(?i)^public[ \\t]*key[ \\t]*:') | list | first | default(vpn_xray_reality_key_lines | select('search', '(?i)^password[ \\t]*:') | list | first | default(''))) | regex_replace('(?i)^(public[ \\t]*key|password)[ \\t]*:[ \\t]*', '') }}"
+    vpn_xray_reality_public_key: "{{ (vpn_xray_reality_key_lines | select('search', '(?i)^public[ \\t]*key[ \\t]*:') | list | first | default(vpn_xray_reality_key_lines | select('search', '(?i)^password([ \\t]*\\([^)]*\\))?[ \\t]*:') | list | first | default(''))) | regex_replace('(?i)^(public[ \\t]*key|password([ \\t]*\\([^)]*\\))?)[ \\t]*:[ \\t]*', '') }}"
     vpn_xray_reality_short_id: "{{ vpn_xray_reality_short_id_raw.content | b64decode | trim }}"
   no_log: true
 

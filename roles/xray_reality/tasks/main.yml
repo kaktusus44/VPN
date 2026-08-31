@@ -62,10 +62,14 @@
     xray_reality_key_lines: "{{ (xray_reality_keys_raw.content | b64decode).splitlines() }}"
   no_log: true
 
+- name: Collect Reality keypair output labels
+  ansible.builtin.set_fact:
+    xray_reality_key_labels: "{{ xray_reality_key_lines | select('search', ':') | map('regex_replace', '^([^:]{1,80}):.*', '\\1') | list }}"
+
 - name: Parse Reality keypair
   ansible.builtin.set_fact:
     xray_reality_private_key: "{{ (xray_reality_key_lines | select('search', '(?i)^private[ \\t]*key[ \\t]*:') | list | first | default('')) | regex_replace('(?i)^private[ \\t]*key[ \\t]*:[ \\t]*', '') }}"
-    xray_reality_public_key: "{{ (xray_reality_key_lines | select('search', '(?i)^public[ \\t]*key[ \\t]*:') | list | first | default(xray_reality_key_lines | select('search', '(?i)^password[ \\t]*:') | list | first | default(''))) | regex_replace('(?i)^(public[ \\t]*key|password)[ \\t]*:[ \\t]*', '') }}"
+    xray_reality_public_key: "{{ (xray_reality_key_lines | select('search', '(?i)^public[ \\t]*key[ \\t]*:') | list | first | default(xray_reality_key_lines | select('search', '(?i)^password([ \\t]*\\([^)]*\\))?[ \\t]*:') | list | first | default(''))) | regex_replace('(?i)^(public[ \\t]*key|password([ \\t]*\\([^)]*\\))?)[ \\t]*:[ \\t]*', '') }}"
     xray_client_uuid: "{{ xray_client_uuid_raw.content | b64decode | trim }}"
     xray_reality_short_id: "{{ xray_reality_short_id_raw.content | b64decode | trim }}"
   no_log: true
@@ -93,9 +97,15 @@
     - not xray_reality_derived_keypair.skipped | default(false)
   no_log: true
 
+- name: Collect derived Reality keypair output labels
+  ansible.builtin.set_fact:
+    xray_reality_derived_key_labels: "{{ xray_reality_derived_key_lines | default([]) | select('search', ':') | map('regex_replace', '^([^:]{1,80}):.*', '\\1') | list }}"
+  when:
+    - xray_reality_derived_key_lines | default([]) | length > 0
+
 - name: Parse derived Reality public key
   ansible.builtin.set_fact:
-    xray_reality_public_key: "{{ (xray_reality_derived_key_lines | default([]) | select('search', '(?i)^public[ \\t]*key[ \\t]*:') | list | first | default(xray_reality_derived_key_lines | default([]) | select('search', '(?i)^password[ \\t]*:') | list | first | default(''))) | regex_replace('(?i)^(public[ \\t]*key|password)[ \\t]*:[ \\t]*', '') }}"
+    xray_reality_public_key: "{{ (xray_reality_derived_key_lines | default([]) | select('search', '(?i)^public[ \\t]*key[ \\t]*:') | list | first | default(xray_reality_derived_key_lines | default([]) | select('search', '(?i)^password([ \\t]*\\([^)]*\\))?[ \\t]*:') | list | first | default(''))) | regex_replace('(?i)^(public[ \\t]*key|password([ \\t]*\\([^)]*\\))?)[ \\t]*:[ \\t]*', '') }}"
   when:
     - xray_reality_public_key | length == 0
     - xray_reality_derived_key_lines | default([]) | length > 0
@@ -118,7 +128,7 @@
     that:
       - xray_reality_private_key | length > 0
       - xray_reality_public_key | length > 0
-    fail_msg: "Could not parse Xray Reality keypair output from /usr/local/bin/xray x25519."
+    fail_msg: "Could not parse Xray Reality keypair output from /usr/local/bin/xray x25519. Labels seen: original={{ xray_reality_key_labels | default([]) | join(', ') }} derived={{ xray_reality_derived_key_labels | default([]) | join(', ') }}"
 
 - name: Render Xray config
   ansible.builtin.template:
