@@ -1,0 +1,15 @@
+#jinja2: trim_blocks: False
+{% for client_key in vpn_client_private_keys_raw.results %}
+### client-{{ '%03d' | format(client_key.item) }} {{ vpn_server_role }} amneziawg_config
+[Interface]
+PrivateKey = {{ client_key.content | b64decode | trim }}
+Address = 10.8.0.{{ client_key.item + 1 }}/32{{ ', fd00:8::' ~ (client_key.item + 1) ~ '/128' if vpn_enable_ipv6 | bool else '' }}
+DNS = {{ unbound_ipv4_listen }}{{ ', ' ~ unbound_ipv6_listen if vpn_enable_ipv6 | bool else '' }}
+
+[Peer]
+PublicKey = {{ vpn_server_public_key }}
+AllowedIPs = 0.0.0.0/0{{ ', ::/0' if vpn_enable_ipv6 | bool else '' }}
+Endpoint = {{ vpn_public_endpoint }}:{{ awg_port }}
+PersistentKeepalive = 25
+
+{% endfor %}

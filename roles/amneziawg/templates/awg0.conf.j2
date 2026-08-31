@@ -6,7 +6,10 @@ PrivateKey = {{ awg_server_private_key_raw.content | b64decode | trim }}
 PostUp = iptables -t nat -A POSTROUTING -s {{ awg_ipv4_network }} -o {{ ansible_default_ipv4.interface }} -j MASQUERADE
 PostDown = iptables -t nat -D POSTROUTING -s {{ awg_ipv4_network }} -o {{ ansible_default_ipv4.interface }} -j MASQUERADE
 
+{% for client_key in awg_client_public_keys.results %}
 [Peer]
-# client-001
-PublicKey = {{ awg_client_public_key.stdout }}
-AllowedIPs = 10.8.0.2/32{{ ', fd00:8::2/128' if vpn_enable_ipv6 | bool else '' }}
+# client-{{ '%03d' | format(loop.index) }}
+PublicKey = {{ client_key.stdout }}
+AllowedIPs = 10.8.0.{{ loop.index + 1 }}/32{{ ', fd00:8::' ~ (loop.index + 1) ~ '/128' if vpn_enable_ipv6 | bool else '' }}
+
+{% endfor %}

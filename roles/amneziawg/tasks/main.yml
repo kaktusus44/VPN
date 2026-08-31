@@ -34,6 +34,13 @@
     group: root
     mode: "0700"
 
+- name: Validate VPN client count
+  ansible.builtin.assert:
+    that:
+      - vpn_client_count | int >= 1
+      - vpn_client_count | int <= 253
+    fail_msg: "vpn_client_count must be between 1 and 253 for the default 10.8.0.0/24 address plan."
+
 - name: Generate server private key
   ansible.builtin.shell: "wg genkey > /var/lib/vpn/{{ awg_interface }}.server.key"
   args:
@@ -60,29 +67,37 @@
   changed_when: false
   no_log: true
 
-- name: Generate first client private key
-  ansible.builtin.shell: "wg genkey > /var/lib/vpn/client-001.key"
-  args:
-    creates: /var/lib/vpn/client-001.key
+- name: Set VPN client indexes
+  ansible.builtin.set_fact:
+    vpn_client_indexes: "{{ range(1, (vpn_client_count | int) + 1) | list }}"
 
-- name: Secure first client private key
+- name: Generate client private keys
+  ansible.builtin.shell: "wg genkey > /var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
+  args:
+    creates: "/var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
+  loop: "{{ vpn_client_indexes }}"
+
+- name: Secure client private keys
   ansible.builtin.file:
-    path: /var/lib/vpn/client-001.key
+    path: "/var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
     owner: root
     group: root
     mode: "0600"
+  loop: "{{ vpn_client_indexes }}"
 
-- name: Read first client private key
+- name: Read client private keys
   ansible.builtin.slurp:
-    src: /var/lib/vpn/client-001.key
-  register: awg_client_private_key_raw
+    src: "/var/lib/vpn/client-{{ '%03d' | format(item) }}.key"
+  register: awg_client_private_keys_raw
+  loop: "{{ vpn_client_indexes }}"
   no_log: true
 
-- name: Derive first client public key
+- name: Derive client public keys
   ansible.builtin.command: "wg pubkey"
   args:
-    stdin: "{{ awg_client_private_key_raw.content | b64decode }}"
-  register: awg_client_public_key
+    stdin: "{{ item.content | b64decode }}"
+  register: awg_client_public_keys
+  loop: "{{ awg_client_private_keys_raw.results }}"
   changed_when: false
   no_log: true
 
