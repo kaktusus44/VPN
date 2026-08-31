@@ -7,6 +7,17 @@
     state: present
     update_cache: true
 
+- name: Install WireGuard kernel modules package when available
+  ansible.builtin.apt:
+    name: "linux-modules-extra-{{ ansible_kernel }}"
+    state: present
+  failed_when: false
+
+- name: Load WireGuard kernel module
+  ansible.builtin.command: modprobe wireguard
+  changed_when: false
+  failed_when: false
+
 - name: Create VPN state directory
   ansible.builtin.file:
     path: /var/lib/vpn
@@ -85,7 +96,38 @@
   notify: Restart awg interface
 
 - name: Enable server interface
-  ansible.builtin.systemd:
-    name: "wg-quick@{{ awg_interface }}"
-    enabled: true
-    state: started
+  block:
+    - name: Start wg-quick interface
+      ansible.builtin.systemd:
+        name: "wg-quick@{{ awg_interface }}"
+        enabled: true
+        state: started
+  rescue:
+    - name: Collect wg-quick service status
+      ansible.builtin.command: "systemctl status --no-pager -l wg-quick@{{ awg_interface }}"
+      register: awg_service_status
+      changed_when: false
+      failed_when: false
+
+    - name: Collect wg-quick journal
+      ansible.builtin.command: "journalctl -u wg-quick@{{ awg_interface }} -n 80 --no-pager"
+      register: awg_service_journal
+      changed_when: false
+      failed_when: false
+
+    - name: Collect sanitized WireGuard config
+      ansible.builtin.shell: "sed -E 's/^(PrivateKey = ).*/\\1<hidden>/' /etc/wireguard/{{ awg_interface }}.conf"
+      register: awg_sanitized_config
+      changed_when: false
+      failed_when: false
+
+    - name: Show wg-quick startup diagnostics
+      ansible.builtin.debug:
+        msg:
+          service_status: "{{ awg_service_status.stdout_lines }}"
+          service_journal: "{{ awg_service_journal.stdout_lines }}"
+          sanitized_config: "{{ awg_sanitized_config.stdout_lines }}"
+
+    - name: Fail after wg-quick diagnostics
+      ansible.builtin.fail:
+        msg: "wg-quick@{{ awg_interface }} failed to start; diagnostics printed above."
