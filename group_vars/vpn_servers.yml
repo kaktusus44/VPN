@@ -9,7 +9,7 @@ vpn_client_count: 100
 awg_config_dir: /etc/amnezia/amneziawg
 awg_enable_header_protection: true
 awg_enable_content_padding: true
-awg_enable_timing_obfuscation: false
+awg_enable_timing_obfuscation: true
 awg_enable_junk_packets: false
 
 unbound_ipv4_listen: 10.8.0.1
@@ -22,5 +22,6 @@ xray_xhttp_port: 8443
 xray_tcp_port: 8444
 
 export_client_links_path: /var/lib/vpn/client-links.txt
+export_xray_links_path: /var/lib/vpn/xray-client-links.txt
 export_amneziawg_configs_path: /var/lib/vpn/amneziawg-client-configs.txt
 export_amnezia_vpn_links_path: /var/lib/vpn/amnezia-vpn-links.txt

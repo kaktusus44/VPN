@@ -58,6 +58,23 @@
       - vpn_xray_reality_public_key | length > 0
     fail_msg: "Could not parse Xray Reality public key/password output from /usr/local/bin/xray x25519."
 
+- name: Set Xray client links
+  ansible.builtin.set_fact:
+    vpn_xray_xhttp_link: "vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_xhttp_port }}?encryption=none&type=xhttp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-xhttp"
+    vpn_xray_tcp_link: "vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_tcp_port }}?encryption=none&type=tcp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&flow=xtls-rprx-vision&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-tcp"
+  no_log: true
+
+- name: Write pure Xray client links
+  ansible.builtin.copy:
+    dest: "{{ export_xray_links_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      {{ vpn_xray_xhttp_link }}
+      {{ vpn_xray_tcp_link }}
+  no_log: true
+
 - name: Add Xray links to client export index
   ansible.builtin.blockinfile:
     path: "{{ export_client_links_path }}"
@@ -67,14 +84,15 @@
     mode: "0600"
     marker: "# {mark} XRAY CLIENT LINKS"
     block: |
-      client-001 {{ vpn_server_role }} vless_xhttp vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_xhttp_port }}?encryption=none&type=xhttp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-xhttp
-      client-001 {{ vpn_server_role }} vless_tcp vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_tcp_port }}?encryption=none&type=tcp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&flow=xtls-rprx-vision&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-tcp
+      client-001 {{ vpn_server_role }} vless_xhttp {{ vpn_xray_xhttp_link }}
+      client-001 {{ vpn_server_role }} vless_tcp {{ vpn_xray_tcp_link }}
   no_log: true
 
 - name: Show client export summary
   ansible.builtin.debug:
     msg:
       - "Client export created: {{ export_client_links_path }}"
+      - "Pure Xray client links created: {{ export_xray_links_path }}"
       - "AmneziaWG client config bundle created: {{ export_amneziawg_configs_path }}"
       - "AmneziaVPN vpn:// links created: {{ export_amnezia_vpn_links_path }}"
       - "Native AmneziaWG configs created: /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/client-{{ '%03d' | format(vpn_client_count | int) }}.awg.conf"
