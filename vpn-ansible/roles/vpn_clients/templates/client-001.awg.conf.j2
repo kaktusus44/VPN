@@ -1,0 +1,10 @@
+[Interface]
+PrivateKey = {{ vpn_client_private_key }}
+Address = 10.8.0.{{ (vpn_client_index | int) + 1 }}/32{{ ', fd00:8::' ~ ((vpn_client_index | int) + 1) ~ '/128' if vpn_enable_ipv6 | bool else '' }}
+DNS = {{ unbound_ipv4_listen }}{{ ', ' ~ unbound_ipv6_listen if vpn_enable_ipv6 | bool else '' }}
+
+[Peer]
+PublicKey = {{ vpn_server_public_key }}
+AllowedIPs = 0.0.0.0/0{{ ', ::/0' if vpn_enable_ipv6 | bool else '' }}
+Endpoint = {{ vpn_public_endpoint }}:{{ awg_port }}
+PersistentKeepalive = 25

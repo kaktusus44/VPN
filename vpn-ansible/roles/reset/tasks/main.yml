@@ -1,0 +1,79 @@
+---
+- name: Stop managed VPN services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - awg-quick@awg0
+    - wg-quick@awg0
+    - wg-quick@wg0
+    - xray
+    - unbound
+    - fail2ban
+    - vpn-custom-exporter
+  failed_when: false
+
+- name: Disable UFW before removing rules
+  community.general.ufw:
+    state: disabled
+  failed_when: false
+
+- name: Remove managed systemd units and binaries
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/vpn-custom-exporter.service
+    - /usr/local/bin/vpn-custom-exporter.py
+    - /etc/fail2ban/jail.local
+    - /etc/wireguard/awg0.conf
+    - /etc/wireguard/wg0.conf
+    - /etc/amnezia/amneziawg/awg0.conf
+    - /usr/local/etc/xray/config.json
+    - /etc/xray/config.json
+    - /etc/unbound/unbound.conf.d/vpn.conf
+    - /var/lib/vpn
+
+- name: Reload systemd after unit removal
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Remove managed packages
+  ansible.builtin.apt:
+    name:
+      - fail2ban
+      - ufw
+      - unbound
+      - amneziawg
+      - wireguard-tools
+      - python3-prometheus-client
+    state: absent
+    purge: true
+    autoremove: true
+  failed_when: false
+
+- name: Reset IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "0"
+    sysctl_set: true
+    state: present
+    reload: true
+  failed_when: false
+
+- name: Reset IPv6 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: "0"
+    sysctl_set: true
+    state: present
+    reload: true
+  failed_when: false
+
+- name: Show reset summary
+  ansible.builtin.debug:
+    msg:
+      - "Managed VPN stack reset completed."
+      - "SSH access and /root/.ssh/authorized_keys were intentionally preserved."
+      - "Next step: run playbooks/vpn-core.yml to deploy the current managed stack."

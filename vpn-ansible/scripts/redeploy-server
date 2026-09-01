@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SERVER_IP="${1:-}"
+SERVER_ROLE="${2:-}"
+CLIENT_COUNT="${VPN_CLIENT_COUNT:-}"
+
+if [ -z "$SERVER_IP" ]; then
+  echo "Использование: scripts/redeploy-server <ip-сервера> [main|reserve]" >&2
+  echo "Пример: scripts/redeploy-server 108.165.33.37 main" >&2
+  exit 1
+fi
+
+case "$SERVER_ROLE" in
+  main|reserve) ;;
+  "")
+    SERVER_ROLE="reserve"
+    ;;
+  *)
+    echo "Роль должна быть main или reserve, получено: $SERVER_ROLE" >&2
+    exit 1
+    ;;
+esac
+
+ask_tty() {
+  local prompt="$1"
+  local answer
+  if [ ! -r /dev/tty ]; then
+    return 1
+  fi
+  read -r -p "$prompt" answer </dev/tty
+  printf '%s' "$answer"
+}
+
+if [ -z "$CLIENT_COUNT" ]; then
+  CLIENT_COUNT="$(ask_tty "Сколько Amnezia ключей генерить [100]: " || true)"
+fi
+
+if [ -z "$CLIENT_COUNT" ]; then
+  CLIENT_COUNT="100"
+fi
+
+if ! [[ "$CLIENT_COUNT" =~ ^[0-9]+$ ]] || [ "$CLIENT_COUNT" -lt 1 ] || [ "$CLIENT_COUNT" -gt 253 ]; then
+  echo "Количество Amnezia ключей должно быть числом от 1 до 253, получено: $CLIENT_COUNT" >&2
+  exit 1
+fi
+
+printf -v LAST_CLIENT_ID "client-%03d" "$CLIENT_COUNT"
+
+cd "$(dirname "$0")/.."
+
+ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
+
+if [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
+  echo "Совместимая версия Ansible не установлена." >&2
+  echo "Сначала запустите: VPN_DIR=\"$PWD\" bash scripts/bootstrap-ubuntu-control" >&2
+  exit 1
+fi
+
+cat <<EOF
+===== DESTRUCTIVE REDEPLOY =====
+Сервер:
+  роль: $SERVER_ROLE
+  IP: $SERVER_IP
+  Amnezia клиентов: $CLIENT_COUNT
+
+Что произойдёт:
+  1. read-only preflight
+  2. destructive reset управляемого VPN-стека
+  3. deploy playbooks/vpn-core.yml
+  4. итоговый read-only preflight
+
+Что reset удаляет/останавливает:
+  awg/wg/xray/unbound/fail2ban/vpn-custom-exporter
+  UFW rules/package
+  управляемые VPN config files и /var/lib/vpn
+
+Что reset НЕ трогает:
+  SSH server
+  /root/.ssh/authorized_keys
+  локальный приватный ключ Ansible
+
+Важно:
+  текущий vpn-core.yml разворачивает полный MVP: base/firewall/fail2ban,
+  WireGuard-compatible awg0, Unbound, Xray Reality и client export.
+===== END WARNING =====
+EOF
+
+if [ "${VPN_RESET_CONFIRM:-}" != "DESTROY" ]; then
+  if [ ! -r /dev/tty ]; then
+    echo "Для destructive redeploy задайте VPN_RESET_CONFIRM=DESTROY." >&2
+    exit 1
+  fi
+
+  read -r -p "Введите DESTROY для удаления и повторного развёртывания: " RESET_CONFIRM </dev/tty
+  if [ "$RESET_CONFIRM" != "DESTROY" ]; then
+    echo "Отменено: подтверждение не совпало." >&2
+    exit 1
+  fi
+fi
+
+echo
+echo "==> [1/4] Preflight до reset"
+scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
+
+echo
+echo "==> [2/4] Destroy managed VPN stack"
+"$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/reset-vpn.yml -e vpn_reset_confirm=DESTROY
+
+echo
+echo "==> [3/4] Deploy current managed VPN stack"
+"$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/vpn-core.yml -e "vpn_client_count=$CLIENT_COUNT"
+
+echo
+echo "==> [4/4] Preflight после deploy"
+scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
+
+cat <<EOF
+
+===== ИТОГ REDEPLOY =====
+Сервер:
+  роль: $SERVER_ROLE
+  IP: $SERVER_IP
+  Amnezia клиентов: $CLIENT_COUNT
+
+Что сделано:
+  preflight до reset: выполнен
+  reset управляемого VPN-стека: выполнен
+  deploy playbooks/vpn-core.yml: выполнен
+  preflight после deploy: выполнен
+
+Развернули:
+  AmneziaWG/WireGuard-compatible: awg0, UDP/443
+  DNS для VPN-клиентов: Unbound на 10.8.0.1 и fd00:8::1
+  Резервный канал: Xray VLESS Reality, TCP/8443 xhttp и TCP/8444 tcp
+  Firewall/UFW + fail2ban
+  Клиенты AmneziaVPN/AmneziaWG: $CLIENT_COUNT штук
+
+Клиентские артефакты на VPS:
+  /var/lib/vpn/amnezia-vpn-links.txt       # $CLIENT_COUNT ссылок vpn://
+  /var/lib/vpn/amneziawg-client-configs.txt # $CLIENT_COUNT .awg.conf подряд
+  /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/$LAST_CLIENT_ID.awg.conf
+  /var/lib/vpn/client-links.txt             # индекс экспортов + Xray/VLESS links
+
+Следующий этап:
+  мониторинг и остальные сервисы запускаются отдельными playbook/ролями
+
+Повторить:
+  cd "$PWD"
+  VPN_CLIENT_COUNT=$CLIENT_COUNT scripts/redeploy-server $SERVER_IP $SERVER_ROLE
+===== КОНЕЦ ИТОГА =====
+EOF

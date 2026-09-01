@@ -46,6 +46,8 @@ cd "$(dirname "$0")/.."
 
 ANSIBLE_BIN="$PWD/.venv/bin/ansible"
 ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
+SSH_KEY_PATH="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
+INVENTORY_PATH="$PWD/inventories/test/hosts.yml"
 
 if [ ! -x "$ANSIBLE_BIN" ] || [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
   echo "Совместимая версия Ansible не установлена." >&2
@@ -53,7 +55,7 @@ if [ ! -x "$ANSIBLE_BIN" ] || [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
   exit 1
 fi
 
-cat > inventories/test/hosts.yml <<EOF
+cat > "$INVENTORY_PATH" <<EOF
 ---
 all:
   children:
@@ -85,4 +87,37 @@ echo "Запускаю read-only preflight сервера"
 "$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/preflight.yml
 
 echo
-echo "Готово. Если ошибок нет, отправьте этот вывод инженеру."
+cat <<EOF
+===== ИТОГ ПРОВЕРКИ СЕРВЕРА =====
+Сервер:
+  роль: $SERVER_ROLE
+  IP: $SERVER_IP
+  Ansible host alias: vpn-test-1
+
+Локальные пути:
+  репозиторий: $PWD
+  inventory: $INVENTORY_PATH
+  приватный SSH-ключ: $SSH_KEY_PATH
+  публичный SSH-ключ: $SSH_KEY_PATH.pub
+  known_hosts: $HOME/.ssh/known_hosts
+  Ansible binary: $ANSIBLE_BIN
+  Ansible playbook binary: $ANSIBLE_PLAYBOOK_BIN
+
+Что поставилось этим check-server:
+  на управляющей машине: ничего, используется готовая .venv
+  на VPS: ничего, preflight read-only
+
+Что могло измениться до проверки:
+  публичный ключ Ansible должен быть в /root/.ssh/authorized_keys на VPS
+  SSH host key сервера мог быть добавлен в $HOME/.ssh/known_hosts
+
+Что проверено на VPS:
+  SSH/Ansible ping: SUCCESS/pong
+  hostnamectl: идентичность и ОС сервера
+  ss -ltnup: слушающие TCP/UDP порты
+  ufw status verbose: статус firewall
+  systemctl: статусы сервисов amnezia/awg/wireguard/xray/unbound/nginx/fail2ban/ssh/ufw/exporter
+
+Если ошибок нет, отправьте этот вывод инженеру.
+===== КОНЕЦ ИТОГА =====
+EOF

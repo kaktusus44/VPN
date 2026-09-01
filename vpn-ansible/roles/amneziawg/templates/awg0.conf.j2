@@ -1,0 +1,38 @@
+[Interface]
+Address = {{ awg_ipv4_address }}{{ ', ' ~ awg_ipv6_address if vpn_enable_ipv6 | bool else '' }}
+ListenPort = {{ awg_port }}
+PrivateKey = {{ awg_server_private_key_raw.content | b64decode | trim }}
+Jc = {{ awg_junk_packet_count if awg_enable_junk_packets | bool else 0 }}
+Jmin = {{ awg_junk_packet_min_size if awg_enable_junk_packets | bool else 0 }}
+Jmax = {{ awg_junk_packet_max_size if awg_enable_junk_packets | bool else 0 }}
+S1 = {{ awg_s1 }}
+S2 = {{ awg_s2 }}
+S3 = {{ awg_s3 }}
+S4 = {{ awg_s4 }}
+H1 = 1
+H2 = 2
+H3 = 3
+H4 = 4
+{% if awg_enable_header_protection | bool %}
+HeaderProtectionKey = {{ awg_header_protection_key }}
+{% endif %}
+{% if awg_enable_content_padding | bool %}
+ContentPaddingAddition = {{ awg_content_padding_addition }}
+{% endif %}
+{% if awg_enable_timing_obfuscation | bool %}
+RekeyAfterTime = {{ awg_rekey_after_time }}
+RekeyTimeout = {{ awg_rekey_timeout }}
+RejectAfterTime = {{ awg_reject_after_time }}
+KeepaliveTimeout = {{ awg_keepalive_timeout }}
+MaxHandshakeAttempts = {{ awg_max_handshake_attempts }}
+{% endif %}
+PostUp = iptables -t nat -A POSTROUTING -s {{ awg_ipv4_network }} -o {{ ansible_default_ipv4.interface }} -j MASQUERADE
+PostDown = iptables -t nat -D POSTROUTING -s {{ awg_ipv4_network }} -o {{ ansible_default_ipv4.interface }} -j MASQUERADE
+
+{% for client_key in awg_client_public_keys.results %}
+[Peer]
+# client-{{ '%03d' | format(loop.index) }}
+PublicKey = {{ client_key.stdout }}
+AllowedIPs = 10.8.0.{{ loop.index + 1 }}/32{{ ', fd00:8::' ~ (loop.index + 1) ~ '/128' if vpn_enable_ipv6 | bool else '' }}
+
+{% endfor %}

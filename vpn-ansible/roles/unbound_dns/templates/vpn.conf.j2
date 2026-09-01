@@ -1,0 +1,22 @@
+server:
+  interface: {{ unbound_ipv4_listen }}
+{% if vpn_enable_ipv6 | bool %}
+  interface: {{ unbound_ipv6_listen }}
+{% endif %}
+  access-control: {{ awg_ipv4_network }} allow
+{% if vpn_enable_ipv6 | bool %}
+  access-control: {{ awg_ipv6_network }} allow
+{% endif %}
+  access-control: 0.0.0.0/0 refuse
+  access-control: ::0/0 refuse
+  hide-identity: yes
+  hide-version: yes
+  harden-glue: yes
+  harden-dnssec-stripped: yes
+  prefetch: yes
+  qname-minimisation: yes
+
+forward-zone:
+  name: "."
+  forward-addr: 1.1.1.1@53
+  forward-addr: 8.8.8.8@53

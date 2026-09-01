@@ -5,6 +5,24 @@ awg_ipv4_address: 10.8.0.1/24
 awg_ipv6_network: fd00:8::/64
 awg_ipv6_address: fd00:8::1/64
 awg_port: 443
+vpn_client_count: 100
+awg_mtu: 1280
+
+awg_enable_header_protection: true
+awg_enable_content_padding: true
+awg_enable_timing_obfuscation: false
+awg_enable_junk_packets: false
+
+awg_header_protection_key_path: /var/lib/vpn/awg.header-protection.key
+awg_content_padding_addition: "0-32"
+awg_rekey_after_time: "120-180"
+awg_rekey_timeout: "5-10"
+awg_reject_after_time: "180-240"
+awg_keepalive_timeout: "10-20"
+awg_max_handshake_attempts: "5-8"
+awg_junk_packet_count: 0
+awg_junk_packet_min_size: 0
+awg_junk_packet_max_size: 0
 
 unbound_ipv4_listen: 10.8.0.1
 unbound_ipv6_listen: fd00:8::1
@@ -16,4 +34,5 @@ xray_xhttp_port: 8443
 xray_tcp_port: 8444
 
 export_client_links_path: /var/lib/vpn/client-links.txt
-
+export_amneziawg_configs_path: /var/lib/vpn/amneziawg-client-configs.txt
+export_amnezia_vpn_links_path: /var/lib/vpn/amnezia-vpn-links.txt

@@ -1,0 +1,7 @@
+amnezia_vpn_links {{ vpn_server_role }} {{ export_amnezia_vpn_links_path }}
+amneziawg_config_bundle {{ vpn_server_role }} {{ export_amneziawg_configs_path }}
+{% for client_index in vpn_client_indexes %}
+client-{{ '%03d' | format(client_index) }} {{ vpn_server_role }} amneziawg_config /var/lib/vpn/client-{{ '%03d' | format(client_index) }}.awg.conf
+{% endfor %}
+client-001 {{ vpn_server_role }} vless_xhttp vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_xhttp_port }}?encryption=none&type=xhttp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-xhttp
+client-001 {{ vpn_server_role }} vless_tcp vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_tcp_port }}?encryption=none&type=tcp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&flow=xtls-rprx-vision&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-tcp

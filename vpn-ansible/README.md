@@ -2,45 +2,78 @@
 
 Короткая инструкция для заказчика.
 
-## Что сделать
+## Простые команды
 
-1. Откройте свою Ubuntu-машину.
+### Первый запуск на управляющей Ubuntu
 
-2. Выполните одну команду. Она установит отдельную совместимую версию Ansible
-   внутри репозитория и не будет зависеть от старого системного пакета Ubuntu:
+Эта команда готовит Ubuntu, создаёт SSH-ключ, скачивает репозиторий, ставит
+локальный Ansible, затем спросит роль и IP сервера и запустит deploy:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash
 ```
 
-3. Скопируйте публичный SSH-ключ, который появится в конце вывода.
-
-4. При создании VPS-сервера у провайдера добавьте этот SSH-ключ для `root`.
-   Если VPS уже создан без ключа, скрипт покажет готовую команду. Скопируйте
-   её целиком и выполните в консоли VPS под `root`.
-
-5. Вернитесь в Ubuntu и запустите проверку, указав IP и роль сервера:
-
-```bash
-cd ~/VPN
-scripts/check-server 1.2.3.4 main
-```
-
-Замените `1.2.3.4` на IP сервера. Роль: `main` или `reserve`.
-
-6. Пришлите результат проверки инженеру.
-
-Если сервер уже создан и ключ добавлен, bootstrap сам предложит сразу ввести
-роль и IP сервера.
-
-Если репозиторий уже был скачан раньше:
+### Если репозиторий уже скачан
 
 ```bash
 cd ~/VPN
 git pull
 ```
 
-Не запускайте `playbooks/vpn-core.yml` без подтверждения инженера.
+### Развернуть VPN
+
+```bash
+cd ~/VPN
+scripts/deploy-server
+```
+
+Скрипт сам спросит роль (`main` или `reserve`) и IP сервера. Он сам создаёт
+внутренний Ansible inventory, запускает deploy и проверяет результат.
+
+Можно без вопросов:
+
+```bash
+scripts/deploy-server main 1.2.3.4
+```
+
+### Удалить то, что развернули
+
+```bash
+cd ~/VPN
+scripts/destroy-server
+```
+
+Скрипт сам спросит роль и IP сервера, затем попросит ввести `DESTROY`.
+
+Можно без вопросов:
+
+```bash
+VPN_RESET_CONFIRM=DESTROY scripts/destroy-server main 1.2.3.4
+```
+
+Destroy удаляет управляемые VPN services/configs/packages и `/var/lib/vpn`.
+Он не удаляет SSH server, `/root/.ssh/authorized_keys` и локальный приватный
+ключ Ansible.
+
+### Удалить и сразу развернуть заново
+
+```bash
+cd ~/VPN
+VPN_RESET_CONFIRM=DESTROY scripts/redeploy-server 1.2.3.4 main
+```
+
+## Что сделать при создании VPS
+
+1. Откройте свою Ubuntu-машину.
+2. Выполните bootstrap-команду из раздела "Первый запуск".
+3. Скопируйте публичный SSH-ключ, который появится в выводе.
+4. При создании VPS у провайдера добавьте этот SSH-ключ для `root`.
+5. Если VPS уже создан без ключа, bootstrap покажет готовую команду. Скопируйте
+   её целиком и выполните в консоли VPS под `root`.
+6. Вернитесь в Ubuntu, нажмите Enter, укажите роль и IP сервера.
+
+Обычному пользователю не нужно вручную запускать `ansible-playbook`,
+указывать `inventories/test/hosts.yml` или отдельно запускать `check-server`.
 
 ## Технические заметки
 
@@ -103,6 +136,9 @@ scripts/
   export-client-links
   compare-server-configs
   rotate-endpoint
+  deploy-server
+  destroy-server
+  redeploy-server
 docs/
   ubuntu-control-machine.md
   runbook.md
