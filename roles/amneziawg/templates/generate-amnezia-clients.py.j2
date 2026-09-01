@@ -11,6 +11,9 @@ WG_CONFIG = Path("/etc/wireguard/{{ awg_interface }}.conf")
 SERVER_KEY = STATE_DIR / "{{ awg_interface }}.server.key"
 CLIENT_COUNT = {{ vpn_client_count | int }}
 VPN_ROLE = "{{ vpn_server_role }}"
+AWG_PORT = {{ awg_port | int }}
+AWG_MTU = {{ awg_mtu | default(1280) | int }}
+VPN_PUBLIC_ENDPOINT = "{{ vpn_public_endpoint }}"
 ENDPOINT = "{{ vpn_public_endpoint }}:{{ awg_port }}"
 EXT_IFACE = "{{ ansible_default_ipv4.interface }}"
 ENABLE_IPV6 = {{ 'True' if vpn_enable_ipv6 | bool else 'False' }}
@@ -49,15 +52,25 @@ def qcompress(raw):
 
 
 def amnezia_vpn_link(config):
+    last_config = {
+        "config": config,
+        "mtu": AWG_MTU,
+        "port": AWG_PORT,
+    }
     payload = {
         "dns1": DNS_IPV4,
         "dns2": DNS_IPV6 if ENABLE_IPV6 else "",
-        "defaultContainer": "awg",
+        "defaultContainer": "amnezia-awg",
+        "description": f"{VPN_ROLE} AmneziaWG",
+        "hostName": VPN_PUBLIC_ENDPOINT,
         "containers": [
             {
-                "container": "awg",
+                "container": "amnezia-awg",
                 "awg": {
-                    "last_config": json.dumps({"config": config}, separators=(",", ":")),
+                    "isThirdPartyConfig": True,
+                    "last_config": json.dumps(last_config, separators=(",", ":")),
+                    "port": str(AWG_PORT),
+                    "transport_proto": "udp",
                 },
             },
         ],
@@ -122,6 +135,7 @@ for index in range(1, CLIENT_COUNT + 1):
             "[Interface]",
             f"PrivateKey = {client_private}",
             f"Address = {address}",
+            f"MTU = {AWG_MTU}",
             f"DNS = {dns}",
             "",
             "[Peer]",
