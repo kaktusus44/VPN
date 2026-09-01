@@ -64,15 +64,24 @@
     vpn_xray_tcp_link: "vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_tcp_port }}?encryption=none&type=tcp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&flow=xtls-rprx-vision&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-tcp"
   no_log: true
 
-- name: Write pure Xray client links
+- name: Write pure stable Xray client link
   ansible.builtin.copy:
     dest: "{{ export_xray_links_path }}"
     owner: root
     group: root
     mode: "0600"
     content: |
-      {{ vpn_xray_xhttp_link }}
       {{ vpn_xray_tcp_link }}
+  no_log: true
+
+- name: Write experimental Xray client links
+  ansible.builtin.copy:
+    dest: "{{ export_xray_experimental_links_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      {{ vpn_xray_xhttp_link }}
   no_log: true
 
 - name: Add Xray links to client export index
@@ -92,7 +101,8 @@
   ansible.builtin.debug:
     msg:
       - "Client export created: {{ export_client_links_path }}"
-      - "Pure Xray client links created: {{ export_xray_links_path }}"
+      - "Stable Xray TCP Reality link created: {{ export_xray_links_path }}"
+      - "Experimental Xray XHTTP Reality link created: {{ export_xray_experimental_links_path }}"
       - "AmneziaWG client config bundle created: {{ export_amneziawg_configs_path }}"
       - "AmneziaVPN vpn:// links created: {{ export_amnezia_vpn_links_path }}"
       - "Native AmneziaWG configs created: /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/client-{{ '%03d' | format(vpn_client_count | int) }}.awg.conf"
