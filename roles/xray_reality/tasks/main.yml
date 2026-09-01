@@ -74,6 +74,14 @@
     group: root
     mode: "0755"
 
+- name: Create Xray log directory
+  ansible.builtin.file:
+    path: /var/log/xray
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Install managed Xray systemd service
   ansible.builtin.copy:
     dest: /etc/systemd/system/xray.service

@@ -1,7 +1,9 @@
 #jinja2: trim_blocks: False
 {
   "log": {
-    "loglevel": "warning"
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log",
+    "loglevel": "info"
   },
   "inbounds": [
     {
@@ -67,7 +69,10 @@
   "outbounds": [
     {
       "protocol": "freedom",
-      "tag": "direct"
+      "tag": "direct",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      }
     }
   ]
 }
