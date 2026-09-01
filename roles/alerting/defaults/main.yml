@@ -4,4 +4,6 @@ vpn_alert_for_server_down: 2m
 vpn_alert_for_service_down: 2m
 vpn_alert_for_peer_collapse: 10m
 vpn_alert_for_exporter_stale: 5m
-
+vpn_alert_for_host_pressure: 10m
+vpn_alert_disk_used_percent: 85
+vpn_alert_memory_used_percent: 90

@@ -110,7 +110,7 @@
     owner: root
     group: root
     mode: "0750"
-  when: monitoring_grafana_external_enabled | bool
+  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)
 
 - name: Generate self-signed Grafana TLS certificate
   ansible.builtin.command: >
@@ -120,7 +120,7 @@
     -subj /CN={{ monitoring_grafana_external_server_name }}
   args:
     creates: "{{ monitoring_grafana_tls_dir }}/grafana.crt"
-  when: monitoring_grafana_external_enabled | bool
+  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)
   notify: Restart nginx
 
 - name: Secure Grafana TLS private key
@@ -129,7 +129,7 @@
     owner: root
     group: root
     mode: "0600"
-  when: monitoring_grafana_external_enabled | bool
+  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)
 
 - name: Install Grafana Basic Auth password file
   ansible.builtin.command: >
@@ -158,11 +158,38 @@
   when: monitoring_grafana_external_enabled | bool
   notify: Restart nginx
 
+- name: Install Alertmanager Basic Auth password file
+  ansible.builtin.command: >
+    htpasswd -bcB {{ monitoring_alertmanager_htpasswd_path }}
+    {{ monitoring_alertmanager_basic_auth_user }}
+    {{ monitoring_alertmanager_basic_auth_password }}
+  no_log: true
+  when: monitoring_alertmanager_external_enabled | bool
+  notify: Restart nginx
+
+- name: Configure Alertmanager nginx reverse proxy
+  ansible.builtin.template:
+    src: nginx-alertmanager.conf.j2
+    dest: /etc/nginx/sites-available/alertmanager.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: monitoring_alertmanager_external_enabled | bool
+  notify: Restart nginx
+
+- name: Enable Alertmanager nginx reverse proxy
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/alertmanager.conf
+    dest: /etc/nginx/sites-enabled/alertmanager.conf
+    state: link
+  when: monitoring_alertmanager_external_enabled | bool
+  notify: Restart nginx
+
 - name: Disable default nginx site
   ansible.builtin.file:
     path: /etc/nginx/sites-enabled/default
     state: absent
-  when: monitoring_grafana_external_enabled | bool
+  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)
   notify: Restart nginx
 
 - name: Allow external HTTPS for Grafana
@@ -171,6 +198,13 @@
     port: "{{ monitoring_grafana_external_port }}"
     proto: tcp
   when: monitoring_grafana_external_enabled | bool
+
+- name: Allow external HTTPS for Alertmanager
+  community.general.ufw:
+    rule: allow
+    port: "{{ monitoring_alertmanager_external_port }}"
+    proto: tcp
+  when: monitoring_alertmanager_external_enabled | bool
 
 - name: Create Grafana datasource provisioning directory
   ansible.builtin.file:
@@ -255,4 +289,4 @@
     name: nginx
     enabled: true
     state: started
-  when: monitoring_grafana_external_enabled | bool
+  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)

@@ -11,6 +11,7 @@ TELEGRAM_BOT_TOKEN="${VPN_TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${VPN_TELEGRAM_CHAT_ID:-}"
 GRAFANA_ADMIN_PASSWORD="${VPN_GRAFANA_ADMIN_PASSWORD:-}"
 GRAFANA_BASIC_AUTH_PASSWORD="${VPN_GRAFANA_BASIC_AUTH_PASSWORD:-}"
+ALERTMANAGER_BASIC_AUTH_PASSWORD="${VPN_ALERTMANAGER_BASIC_AUTH_PASSWORD:-}"
 CHECK_ATTEMPTS="${VPN_CHECK_ATTEMPTS:-5}"
 CHECK_DELAY_SECONDS="${VPN_CHECK_DELAY_SECONDS:-10}"
 
@@ -134,14 +135,19 @@ if [ "$SERVER_ROLE" = "main" ]; then
   if [ -z "$GRAFANA_BASIC_AUTH_PASSWORD" ]; then
     GRAFANA_BASIC_AUTH_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
   fi
+  if [ -z "$ALERTMANAGER_BASIC_AUTH_PASSWORD" ]; then
+    ALERTMANAGER_BASIC_AUTH_PASSWORD="$GRAFANA_BASIC_AUTH_PASSWORD"
+  fi
 fi
 
 if [ "$SERVER_ROLE" = "main" ]; then
   MONITORING_STACK_SUMMARY="Monitoring stack: Prometheus + Alertmanager + Grafana"
   GRAFANA_ACCESS_SUMMARY="Grafana доступна извне по HTTPS + Basic Auth: https://$SERVER_IP/ (self-signed TLS)"
+  ALERTMANAGER_ACCESS_SUMMARY="Alertmanager доступен извне по HTTPS + Basic Auth: https://$SERVER_IP:9443/ (self-signed TLS)"
 else
   MONITORING_STACK_SUMMARY="Monitoring stack: не ставился на reserve; ставится на main"
   GRAFANA_ACCESS_SUMMARY="Grafana живёт на main и доступна только из VPN"
+  ALERTMANAGER_ACCESS_SUMMARY="Alertmanager живёт на main и доступен только там"
 fi
 
 cd "$(dirname "$0")/.."
@@ -192,7 +198,7 @@ echo
 echo "==> [3/4] Deploy monitoring layer"
 if [ "$SERVER_ROLE" = "main" ]; then
   MONITORING_EXTRA_VARS_FILE="$(mktemp)"
-  export TELEGRAM_ALERTS TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID GRAFANA_ADMIN_PASSWORD GRAFANA_BASIC_AUTH_PASSWORD
+  export TELEGRAM_ALERTS TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID GRAFANA_ADMIN_PASSWORD GRAFANA_BASIC_AUTH_PASSWORD ALERTMANAGER_BASIC_AUTH_PASSWORD
   python3 - "$MONITORING_EXTRA_VARS_FILE" <<'PY'
 import json
 import os
@@ -204,6 +210,7 @@ data = {
     "monitoring_alertmanager_telegram_chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""),
     "monitoring_grafana_admin_password": os.environ.get("GRAFANA_ADMIN_PASSWORD", ""),
     "monitoring_grafana_basic_auth_password": os.environ.get("GRAFANA_BASIC_AUTH_PASSWORD", ""),
+    "monitoring_alertmanager_basic_auth_password": os.environ.get("ALERTMANAGER_BASIC_AUTH_PASSWORD", ""),
 }
 with open(sys.argv[1], "w") as fh:
     json.dump(data, fh)
@@ -247,7 +254,8 @@ Deploy завершён.
 
 Следующий этап:
   $GRAFANA_ACCESS_SUMMARY
-  Prometheus и Alertmanager слушают localhost и не открыты наружу
+  $ALERTMANAGER_ACCESS_SUMMARY
+  Prometheus слушает localhost и не открыт наружу
 ===== КОНЕЦ ИТОГА =====
 EOF
     exit 0

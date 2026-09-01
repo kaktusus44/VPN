@@ -1,6 +1,12 @@
 ---
 monitoring_prometheus_listen_address: "127.0.0.1:9090"
 monitoring_alertmanager_listen_address: "127.0.0.1:9093"
+monitoring_alertmanager_external_enabled: true
+monitoring_alertmanager_external_port: 9443
+monitoring_alertmanager_external_server_name: "{{ vpn_public_endpoint | default(ansible_host) }}"
+monitoring_alertmanager_basic_auth_user: admin
+monitoring_alertmanager_basic_auth_password: "{{ monitoring_grafana_basic_auth_password }}"
+monitoring_alertmanager_htpasswd_path: /etc/nginx/.alertmanager.htpasswd
 monitoring_grafana_http_addr: "127.0.0.1"
 monitoring_grafana_http_port: 3000
 monitoring_grafana_admin_user: admin

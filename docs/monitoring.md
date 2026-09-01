@@ -86,12 +86,13 @@ Do not expose client IPs, private keys, preshared keys, UUIDs, or full client na
 Prometheus evaluates alert rules.
 Alertmanager routes notifications.
 
-Initial rules:
+Current rules:
 
 - `VpnServerDown`
 - `AmneziaWGDown`
 - `UnboundDown`
 - `XrayDown`
+- `VpnExporterDown`
 - `NoActivePeers`
 - `PeerCountCollapse`
 - `OperatorDrop`
@@ -101,6 +102,10 @@ Initial rules:
 - `ProviderMappingEmpty`
 - `HostDiskHigh`
 - `HostMemoryPressure`
+
+The main server also exposes Alertmanager through nginx on
+`https://<server-ip>:9443/` with Basic Auth. Prometheus remains bound to
+localhost.
 
 Existing `vpn-tg` thresholds are the starting point:
 

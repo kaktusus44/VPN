@@ -45,6 +45,12 @@
     - /etc/prometheus/rules/vpn-alert-rules.yml
     - /etc/prometheus/alertmanager.yml
     - /etc/grafana/provisioning/datasources/prometheus.yml
+    - /etc/nginx/sites-available/grafana.conf
+    - /etc/nginx/sites-enabled/grafana.conf
+    - /etc/nginx/sites-available/alertmanager.conf
+    - /etc/nginx/sites-enabled/alertmanager.conf
+    - /etc/nginx/.grafana.htpasswd
+    - /etc/nginx/.alertmanager.htpasswd
     - /var/lib/vpn
     - /var/lib/vpn-custom-exporter
     - /var/lib/vpn-asn

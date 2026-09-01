@@ -1,6 +1,46 @@
 groups:
   - name: {{ vpn_alert_rules_group_name }}
     rules:
+      - alert: VpnServerDown
+        expr: up{job="node"} == 0
+        for: {{ vpn_alert_for_server_down }}
+        labels:
+          severity: critical
+        annotations:
+          summary: "VPN server metrics are unavailable on {{ "{{ $labels.instance }}" }}"
+
+      - alert: AmneziaWGDown
+        expr: vpn_systemd_unit_active{unit="awg-quick@{{ awg_interface }}"} == 0
+        for: {{ vpn_alert_for_service_down }}
+        labels:
+          severity: critical
+        annotations:
+          summary: "AmneziaWG is down on {{ "{{ $labels.instance }}" }}"
+
+      - alert: UnboundDown
+        expr: vpn_systemd_unit_active{unit="unbound"} == 0
+        for: {{ vpn_alert_for_service_down }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unbound is down on {{ "{{ $labels.instance }}" }}"
+
+      - alert: XrayDown
+        expr: vpn_systemd_unit_active{unit="xray"} == 0
+        for: {{ vpn_alert_for_service_down }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "Xray is down on {{ "{{ $labels.instance }}" }}"
+
+      - alert: VpnExporterDown
+        expr: up{job="vpn-custom-exporter"} == 0
+        for: {{ vpn_alert_for_service_down }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "VPN exporter is down on {{ "{{ $labels.instance }}" }}"
+
       - alert: VpnExporterStale
         expr: time() - vpn_sampler_last_success_timestamp_seconds > 300
         for: {{ vpn_alert_for_exporter_stale }}
@@ -25,7 +65,7 @@ groups:
         annotations:
           summary: "AWG active peer count collapsed on {{ "{{ $labels.instance }}" }}"
 
-      - alert: OperatorPeerCountCollapse
+      - alert: OperatorDrop
         expr: vpn_operator_active_peers < 0.4 * avg_over_time(vpn_operator_active_peers[30m])
         for: {{ vpn_alert_for_peer_collapse }}
         labels:
@@ -56,3 +96,19 @@ groups:
           severity: warning
         annotations:
           summary: "VPN provider mapping is empty on {{ "{{ $labels.instance }}" }}"
+
+      - alert: HostDiskHigh
+        expr: (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) * 100 > {{ vpn_alert_disk_used_percent }}
+        for: {{ vpn_alert_for_host_pressure }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "Root disk usage is high on {{ "{{ $labels.instance }}" }}"
+
+      - alert: HostMemoryPressure
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > {{ vpn_alert_memory_used_percent }}
+        for: {{ vpn_alert_for_host_pressure }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory pressure is high on {{ "{{ $labels.instance }}" }}"
