@@ -27,6 +27,7 @@ CLIENT_LINKS = Path("{{ export_client_links_path }}")
 ENABLE_HEADER_PROTECTION = {{ 'True' if awg_enable_header_protection | bool else 'False' }}
 ENABLE_CONTENT_PADDING = {{ 'True' if awg_enable_content_padding | bool else 'False' }}
 ENABLE_TIMING_OBFUSCATION = {{ 'True' if awg_enable_timing_obfuscation | bool else 'False' }}
+ENABLE_JUNK_PACKETS = {{ 'True' if awg_enable_junk_packets | default(false) | bool else 'False' }}
 
 
 def run(args, stdin=None):
@@ -134,8 +135,9 @@ def generate_obfuscation_params():
         "H2": h2,
         "H3": h3,
         "H4": h4,
-        "I1": "<r 128>",
     }
+    if ENABLE_JUNK_PACKETS:
+        params["I1"] = "<r 128>"
     if ENABLE_HEADER_PROTECTION:
         params["HeaderProtectionKey"] = run(["awg", "genkey"])
     if ENABLE_CONTENT_PADDING:
@@ -160,6 +162,24 @@ def load_obfuscation_params():
     else:
         params = generate_obfuscation_params()
         params_changed = True
+    if not ENABLE_HEADER_PROTECTION and params.pop("HeaderProtectionKey", None):
+        params_changed = True
+    if not ENABLE_CONTENT_PADDING and params.pop("ContentPaddingAddition", None):
+        params_changed = True
+    if not ENABLE_JUNK_PACKETS:
+        for key in ("I1", "I2", "I3", "I4", "I5"):
+            if params.pop(key, None):
+                params_changed = True
+    if not ENABLE_TIMING_OBFUSCATION:
+        for key in (
+            "RekeyAfterTime",
+            "RekeyTimeout",
+            "RejectAfterTime",
+            "KeepaliveTimeout",
+            "MaxHandshakeAttempts",
+        ):
+            if params.pop(key, None):
+                params_changed = True
     if ENABLE_HEADER_PROTECTION and not params.get("HeaderProtectionKey"):
         params["HeaderProtectionKey"] = run(["awg", "genkey"])
         params_changed = True
