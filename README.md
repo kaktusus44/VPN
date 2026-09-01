@@ -36,7 +36,8 @@ Prometheus на `main` будет скрейпить обе ноды. Для `ma
 не ввести, будет 100. Он сам создаёт Ansible inventory, запускает VPN core,
 monitoring layer и проверяет результат. Grafana на `main` публикуется наружу
 через nginx HTTPS с Basic Auth. Alertmanager на `main` публикуется наружу через
-nginx HTTPS с Basic Auth на порту `9443`. Prometheus остаётся на localhost.
+nginx HTTPS с Basic Auth на порту `9443`. Prometheus остаётся на localhost. В
+итоговом выводе скрипт показывает, сколько заняло развёртывание.
 
 Можно без вопросов:
 
@@ -83,6 +84,9 @@ Destroy удаляет управляемые VPN services/configs/packages и `
 cd ~/VPN
 VPN_RESET_CONFIRM=DESTROY VPN_CLIENT_COUNT=100 scripts/redeploy-server 1.2.3.4 main
 ```
+
+В итоговом выводе `redeploy-server` тоже показывает общее время выполнения
+после ввода всех параметров и подтверждения `DESTROY`.
 
 ### Добавить reserve позже
 
