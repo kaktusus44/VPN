@@ -9,12 +9,54 @@
     state: present
     update_cache: true
 
+- name: Check existing Xray service command
+  ansible.builtin.command: systemctl show xray -p ExecStart --value
+  register: xray_existing_execstart
+  changed_when: false
+  failed_when: false
+
+- name: Check official Xray binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/xray
+  register: xray_official_binary
+
+- name: Backup legacy v2ray-agent Xray service
+  ansible.builtin.command:
+    argv:
+      - cp
+      - -n
+      - /etc/systemd/system/xray.service
+      - /etc/systemd/system/xray.service.v2ray-agent.bak
+  args:
+    creates: /etc/systemd/system/xray.service.v2ray-agent.bak
+  when: "'/etc/v2ray-agent/' in (xray_existing_execstart.stdout | default(''))"
+
+- name: Stop legacy v2ray-agent Xray service
+  ansible.builtin.systemd:
+    name: xray
+    state: stopped
+    enabled: false
+  failed_when: false
+  when: "'/etc/v2ray-agent/' in (xray_existing_execstart.stdout | default(''))"
+
+- name: Remove legacy v2ray-agent Xray service unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/xray.service
+    state: absent
+  when: "'/etc/v2ray-agent/' in (xray_existing_execstart.stdout | default(''))"
+
+- name: Reload systemd after legacy Xray migration
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: "'/etc/v2ray-agent/' in (xray_existing_execstart.stdout | default(''))"
+
 - name: Install Xray core with official installer
   ansible.builtin.shell: >
     bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
     @ install --version {{ xray_version }}
-  args:
-    creates: /usr/local/bin/xray
+  when: >
+    (not xray_official_binary.stat.exists)
+    or ('/etc/v2ray-agent/' in (xray_existing_execstart.stdout | default('')))
 
 - name: Create VPN state directory
   ansible.builtin.file:
