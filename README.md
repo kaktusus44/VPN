@@ -28,12 +28,15 @@ scripts/deploy-server
 ```
 
 Скрипт сам спросит роль (`main` или `reserve`), IP сервера и сколько Amnezia
-ключей генерить. Для `main` он также спросит, подключать ли Telegram alerts,
-и пароль администратора Grafana. Если количество не ввести, будет 100. Он сам
-создаёт внутренний Ansible inventory, запускает VPN core, monitoring layer и
-проверяет результат. Grafana на `main` публикуется наружу через nginx HTTPS с
-Basic Auth. Alertmanager на `main` публикуется наружу через nginx HTTPS с
-Basic Auth на порту `9443`. Prometheus остаётся на localhost.
+ключей генерить. Для `main` он также спросит, есть ли уже `reserve`-нода для
+централизованного мониторинга. Если `reserve` уже есть, её IP попадёт в
+`inventories/managed/hosts.yml`, на неё поставятся VPN services и exporters, а
+Prometheus на `main` будет скрейпить обе ноды. Для `main` скрипт также спросит,
+подключать ли Telegram alerts, и пароль администратора Grafana. Если количество
+не ввести, будет 100. Он сам создаёт Ansible inventory, запускает VPN core,
+monitoring layer и проверяет результат. Grafana на `main` публикуется наружу
+через nginx HTTPS с Basic Auth. Alertmanager на `main` публикуется наружу через
+nginx HTTPS с Basic Auth на порту `9443`. Prometheus остаётся на localhost.
 
 Можно без вопросов:
 
@@ -51,6 +54,7 @@ VPN_TELEGRAM_CHAT_ID='-1001234567890' \
 VPN_GRAFANA_ADMIN_PASSWORD='<strong-password>' \
 VPN_GRAFANA_BASIC_AUTH_PASSWORD='<strong-password>' \
 VPN_ALERTMANAGER_BASIC_AUTH_PASSWORD='<strong-password>' \
+VPN_RESERVE_IP='5.6.7.8' \
 scripts/deploy-server main 1.2.3.4
 ```
 

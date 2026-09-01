@@ -1,5 +1,5 @@
 ---
-monitoring_listen_address: "127.0.0.1"
+monitoring_listen_address: "{{ '127.0.0.1' if (vpn_server_role | default('main')) == 'main' else '0.0.0.0' }}"
 vpn_custom_exporter_port: 9187
 vpn_custom_exporter_user: root
 vpn_custom_exporter_group: root

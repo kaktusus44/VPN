@@ -111,3 +111,25 @@
     enabled: true
     state: started
     daemon_reload: true
+
+- name: Allow main Prometheus to scrape node exporter on reserve
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ hostvars[item].vpn_public_endpoint | default(hostvars[item].ansible_host) }}"
+    port: "9100"
+    proto: tcp
+  loop: "{{ groups['vpn_servers'] | default([]) }}"
+  when:
+    - vpn_server_role != "main"
+    - hostvars[item].vpn_server_role | default("") == "main"
+
+- name: Allow main Prometheus to scrape VPN exporter on reserve
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ hostvars[item].vpn_public_endpoint | default(hostvars[item].ansible_host) }}"
+    port: "{{ vpn_custom_exporter_port }}"
+    proto: tcp
+  loop: "{{ groups['vpn_servers'] | default([]) }}"
+  when:
+    - vpn_server_role != "main"
+    - hostvars[item].vpn_server_role | default("") == "main"

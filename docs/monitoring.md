@@ -107,6 +107,10 @@ The main server also exposes Alertmanager through nginx on
 `https://<server-ip>:9443/` with Basic Auth. Prometheus remains bound to
 localhost.
 
+In a `main` + `reserve` deployment, Prometheus runs only on `main`. The reserve
+server runs `prometheus-node-exporter` and `vpn-custom-exporter`; UFW permits
+scraping ports `9100` and `9187` only from the main server IP.
+
 Existing `vpn-tg` thresholds are the starting point:
 
 - live peer: handshake age under 180 seconds

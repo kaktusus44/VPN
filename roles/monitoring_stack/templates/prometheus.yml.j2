@@ -19,14 +19,20 @@ scrape_configs:
 
   - job_name: node
     static_configs:
+{% for host in groups['vpn_servers'] | default([]) %}
       - targets:
-          - 127.0.0.1:9100
+          - {{ '127.0.0.1' if host == inventory_hostname else (hostvars[host].vpn_public_endpoint | default(hostvars[host].ansible_host)) }}:9100
         labels:
-          role: {{ vpn_server_role }}
+          role: "{{ hostvars[host].vpn_server_role | default('unknown') }}"
+          server: "{{ host }}"
+{% endfor %}
 
   - job_name: vpn-custom-exporter
     static_configs:
+{% for host in groups['vpn_servers'] | default([]) %}
       - targets:
-          - 127.0.0.1:{{ vpn_custom_exporter_port | default(9187) }}
+          - {{ '127.0.0.1' if host == inventory_hostname else (hostvars[host].vpn_public_endpoint | default(hostvars[host].ansible_host)) }}:{{ hostvars[host].vpn_custom_exporter_port | default(vpn_custom_exporter_port | default(9187)) }}
         labels:
-          role: {{ vpn_server_role }}
+          role: "{{ hostvars[host].vpn_server_role | default('unknown') }}"
+          server: "{{ host }}"
+{% endfor %}
