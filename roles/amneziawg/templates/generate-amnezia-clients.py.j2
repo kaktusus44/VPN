@@ -75,13 +75,13 @@ def amnezia_vpn_link(config, client_private, client_public, address, server_publ
     payload = {
         "dns1": DNS_IPV4,
         "dns2": DNS_IPV6 if ENABLE_IPV6 else "",
-        "defaultContainer": "amnezia-wireguard",
-        "description": f"{VPN_ROLE} WireGuard",
+        "defaultContainer": "amnezia-awg",
+        "description": f"{VPN_ROLE} AmneziaWG",
         "hostName": VPN_PUBLIC_ENDPOINT,
         "containers": [
             {
-                "container": "amnezia-wireguard",
-                "wireguard": {
+                "container": "amnezia-awg",
+                "awg": {
                     "isThirdPartyConfig": True,
                     "last_config": json.dumps(last_config, separators=(",", ":")),
                     "port": str(AWG_PORT),
