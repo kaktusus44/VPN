@@ -29,7 +29,28 @@
     proto: tcp
   loop: "{{ vpn_forbidden_public_ports }}"
 
+- name: Allow VPN clients to route IPv4 traffic through the server
+  community.general.ufw:
+    rule: allow
+    route: true
+    interface_in: "{{ awg_interface }}"
+    interface_out: "{{ ansible_default_ipv4.interface }}"
+    from_ip: "{{ awg_ipv4_network }}"
+    to_ip: any
+
+- name: Allow VPN clients to route IPv6 traffic through the server
+  community.general.ufw:
+    rule: allow
+    route: true
+    interface_in: "{{ awg_interface }}"
+    interface_out: "{{ ansible_default_ipv6.interface }}"
+    from_ip: "{{ awg_ipv6_network }}"
+    to_ip: any
+  when:
+    - vpn_enable_ipv6 | bool
+    - ansible_default_ipv6.interface is defined
+    - ansible_default_ipv6.interface | length > 0
+
 - name: Enable UFW
   community.general.ufw:
     state: enabled
-

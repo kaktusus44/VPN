@@ -112,11 +112,14 @@ def generate_h_ranges():
 
 def generate_obfuscation_params():
     jmin = randint(40, 89)
-    s1 = randint(15, 150)
-    s2 = randint(15, 150)
+    s1 = randint(12, 32)
+    s2 = randint(12, 32)
     while s1 + 56 == s2:
-        s2 = randint(15, 150)
-    h1, h2, h3, h4 = generate_h_ranges()
+        s2 = randint(12, 32)
+    if ENABLE_HEADER_PROTECTION:
+        h1, h2, h3, h4 = "1", "2", "3", "4"
+    else:
+        h1, h2, h3, h4 = generate_h_ranges()
 
     params = {
         "Jc": str(randint(3, 6)),
@@ -124,7 +127,7 @@ def generate_obfuscation_params():
         "Jmax": str(randint(jmin + 50, min(jmin + 250, 1280))),
         "S1": str(s1),
         "S2": str(s2),
-        "S3": str(randint(12, 55)),
+        "S3": str(randint(12, 32)),
         "S4": str(randint(12, 27)),
         "H1": h1,
         "H2": h2,
@@ -174,9 +177,18 @@ def load_obfuscation_params():
                 params[key] = value
                 params_changed = True
     if ENABLE_HEADER_PROTECTION:
+        for key, compatible_value in {
+            "H1": "1",
+            "H2": "2",
+            "H3": "3",
+            "H4": "4",
+        }.items():
+            if params.get(key) != compatible_value:
+                params[key] = compatible_value
+                params_changed = True
         for key in ("S1", "S2", "S3", "S4"):
             lower_bound = str(params.get(key, "0")).split("-", 1)[0]
-            if int(lower_bound) < 12:
+            if int(lower_bound) < 12 or int(lower_bound) > 32:
                 params[key] = "12"
                 params_changed = True
     if params_changed:
@@ -276,7 +288,6 @@ for index in range(1, CLIENT_COUNT + 1):
             f"Address = {address}",
             f"MTU = {AWG_MTU}",
             f"DNS = {dns}",
-            "MTU = 1280",
             *obfuscation_lines(obfuscation),
             "",
             "[Peer]",
