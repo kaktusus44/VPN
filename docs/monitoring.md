@@ -112,6 +112,20 @@ In a `main` + `reserve` deployment, Prometheus runs only on `main`. The reserve
 server runs `prometheus-node-exporter` and `vpn-custom-exporter`; UFW permits
 scraping ports `9100` and `9187` only from the main server IP.
 
+To add reserve after main is already deployed, add the existing Ansible public
+key `~/.ssh/vpn_ansible.pub` to `/root/.ssh/authorized_keys` on the reserve VPS,
+then rerun the main deploy with the reserve IP:
+
+```bash
+cd ~/VPN
+git pull
+VPN_RESERVE_IP=5.6.7.8 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
+```
+
+The rerun updates `inventories/managed/hosts.yml`, deploys VPN services and
+exporters on reserve, keeps Prometheus/Grafana/Alertmanager on main only, and
+renders Prometheus scrape targets for both nodes.
+
 Existing `vpn-tg` thresholds are the starting point:
 
 - live peer: handshake age under 180 seconds

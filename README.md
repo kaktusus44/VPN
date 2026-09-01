@@ -84,12 +84,40 @@ cd ~/VPN
 VPN_RESET_CONFIRM=DESTROY VPN_CLIENT_COUNT=100 scripts/redeploy-server 1.2.3.4 main
 ```
 
+### Добавить reserve позже
+
+Если `main` уже развёрнут, reserve можно добавить позднее. Сначала добавьте тот
+же публичный Ansible SSH-ключ `~/.ssh/vpn_ansible.pub` в
+`/root/.ssh/authorized_keys` на новом reserve VPS.
+
+Затем на управляющей Ubuntu выполните:
+
+```bash
+cd ~/VPN
+git pull
+VPN_RESERVE_IP=5.6.7.8 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
+```
+
+Замените `1.2.3.4` на IP `main`, а `5.6.7.8` на IP `reserve`. Скрипт обновит
+`inventories/managed/hosts.yml`, идемпотентно применит VPN core к обеим нодам,
+поставит exporters на reserve и перерендерит Prometheus на main так, чтобы он
+скрейпил оба сервера. На reserve UFW откроет exporter-порты `9100` и `9187`
+только для IP main.
+
+Проверить, что Prometheus подтянул reserve:
+
+```bash
+ssh -i ~/.ssh/vpn_ansible root@1.2.3.4
+curl -s http://127.0.0.1:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, server: .labels.server, role: .labels.role, health: .health}'
+```
+
 ## Что сделать при создании VPS
 
 1. Откройте свою Ubuntu-машину.
 2. Выполните bootstrap-команду из раздела "Первый запуск".
 3. Скопируйте публичный SSH-ключ, который появится в выводе.
-4. При создании VPS у провайдера добавьте этот SSH-ключ для `root`.
+4. При создании VPS у провайдера добавьте этот SSH-ключ для `root` на каждом
+   целевом сервере: main и, если уже есть, reserve.
 5. Если VPS уже создан без ключа, bootstrap покажет готовую команду. Скопируйте
    её целиком и выполните в консоли VPS под `root`.
 6. Вернитесь в Ubuntu, нажмите Enter, укажите роль и IP сервера.

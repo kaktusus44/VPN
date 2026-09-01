@@ -31,6 +31,22 @@ scripts/check-server 1.2.3.4 main
 команда нужна только для ручной диагностики; обычный первый запуск идёт через
 bootstrap выше.
 
+## Добавить reserve позже
+
+Если `main` уже развёрнут, добавьте тот же публичный ключ
+`~/.ssh/vpn_ansible.pub` в `/root/.ssh/authorized_keys` на новом reserve VPS.
+Затем запустите main deploy повторно с IP reserve:
+
+```bash
+cd ~/VPN
+git pull
+VPN_RESERVE_IP=5.6.7.8 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
+```
+
+Замените `1.2.3.4` на IP `main`, а `5.6.7.8` на IP `reserve`. Скрипт обновит
+managed inventory, поставит VPN services и exporters на reserve и обновит
+Prometheus на main, чтобы он скрейпил обе ноды.
+
 ## Если репозиторий уже скачан
 
 ```bash
