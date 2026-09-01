@@ -30,7 +30,7 @@ SYSTEMD_UNITS = [
     unit.strip()
     for unit in os.environ.get(
         "SYSTEMD_UNITS",
-        "awg-quick@{{ awg_interface | default('awg0') }},unbound,xray,vpn-custom-exporter,prometheus,prometheus-alertmanager,grafana-server,nginx",
+        "awg-quick@{{ awg_interface | default('awg0') }},unbound,xray,fail2ban,vpn-custom-exporter,prometheus,prometheus-alertmanager,grafana-server,nginx",
     ).split(",")
     if unit.strip()
 ]

@@ -33,6 +33,14 @@ groups:
         annotations:
           summary: "Xray is down on {{ "{{ $labels.instance }}" }}"
 
+      - alert: Fail2banDown
+        expr: vpn_systemd_unit_active{unit="fail2ban"} == 0
+        for: {{ vpn_alert_for_service_down }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "fail2ban is down on {{ "{{ $labels.instance }}" }}"
+
       - alert: VpnExporterDown
         expr: up{job="vpn-custom-exporter"} == 0
         for: {{ vpn_alert_for_service_down }}

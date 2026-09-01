@@ -92,6 +92,7 @@ Current rules:
 - `AmneziaWGDown`
 - `UnboundDown`
 - `XrayDown`
+- `Fail2banDown`
 - `VpnExporterDown`
 - `NoActivePeers`
 - `PeerCountCollapse`
