@@ -60,8 +60,8 @@
 
 - name: Set Xray client links
   ansible.builtin.set_fact:
-    vpn_xray_xhttp_link: "vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_xhttp_port }}?encryption=none&type=xhttp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=chrome&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-xhttp"
-    vpn_xray_tcp_link: "vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_tcp_port }}?flow=xtls-rprx-vision&encryption=none&security=reality&sni={{ xray_reality_server_name }}&fp=chrome&pbk={{ vpn_xray_reality_public_key }}&sid={{ vpn_xray_reality_short_id }}&type=tcp&headerType=none#client-001-{{ vpn_server_role }}-tcp"
+    vpn_xray_xhttp_link: "vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_xhttp_port }}?encryption=none&type=xhttp&security=reality&pbk={{ vpn_xray_reality_public_key }}&fp=firefox&sni={{ xray_reality_server_name }}&sid={{ vpn_xray_reality_short_id }}#client-001-{{ vpn_server_role }}-xhttp"
+    vpn_xray_tcp_link: "vless://{{ vpn_xray_client_uuid }}@{{ vpn_public_endpoint }}:{{ xray_tcp_port }}?flow=xtls-rprx-vision&encryption=none&security=reality&sni={{ xray_reality_server_name }}&fp=firefox&pbk={{ vpn_xray_reality_public_key }}&sid={{ vpn_xray_reality_short_id }}&type=tcp&headerType=none#client-001-{{ vpn_server_role }}-tcp"
   no_log: true
 
 - name: Write pure stable Xray client link
