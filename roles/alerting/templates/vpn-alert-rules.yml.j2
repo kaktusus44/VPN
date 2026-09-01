@@ -25,3 +25,34 @@ groups:
         annotations:
           summary: "AWG active peer count collapsed on {{ "{{ $labels.instance }}" }}"
 
+      - alert: OperatorPeerCountCollapse
+        expr: vpn_operator_active_peers < 0.4 * avg_over_time(vpn_operator_active_peers[30m])
+        for: {{ vpn_alert_for_peer_collapse }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "AWG active peer count collapsed for {{ "{{ $labels.provider }}" }} on {{ "{{ $labels.instance }}" }}"
+
+      - alert: VpnStallDetected
+        expr: vpn_stall_detected > 0
+        for: {{ vpn_alert_for_peer_collapse }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "VPN traffic stall detected on {{ "{{ $labels.instance }}" }}"
+
+      - alert: ProviderMappingStale
+        expr: time() - vpn_provider_mapping_last_success_timestamp_seconds > 86400
+        for: {{ vpn_alert_for_exporter_stale }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "VPN provider mapping is stale on {{ "{{ $labels.instance }}" }}"
+
+      - alert: ProviderMappingEmpty
+        expr: vpn_provider_mapping_entries == 0
+        for: {{ vpn_alert_for_exporter_stale }}
+        labels:
+          severity: warning
+        annotations:
+          summary: "VPN provider mapping is empty on {{ "{{ $labels.instance }}" }}"

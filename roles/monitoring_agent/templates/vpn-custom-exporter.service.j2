@@ -12,6 +12,9 @@ Environment=PORT={{ vpn_custom_exporter_port }}
 Environment=INTERVAL={{ vpn_custom_exporter_interval }}
 Environment=AWG_COMMAND={{ vpn_custom_exporter_awg_command }}
 Environment=AWG_INTERFACE={{ vpn_custom_exporter_interface }}
+Environment=PROVIDER_MAP_CSV={{ vpn_custom_exporter_provider_map_csv }}
+Environment=PROVIDER_MAP_JSON={{ vpn_custom_exporter_provider_map_json }}
+Environment=ASN_TABLE={{ vpn_custom_exporter_asn_table_path }}
 ExecStart={{ vpn_custom_exporter_path }}
 Restart=always
 RestartSec=10
@@ -23,4 +26,3 @@ ReadWritePaths={{ vpn_custom_exporter_state_dir }}
 
 [Install]
 WantedBy=multi-user.target
-

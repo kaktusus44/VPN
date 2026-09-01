@@ -8,3 +8,8 @@ vpn_custom_exporter_path: /usr/local/bin/vpn-custom-exporter
 vpn_custom_exporter_state_dir: /var/lib/vpn-custom-exporter
 vpn_custom_exporter_awg_command: awg
 vpn_custom_exporter_interface: "{{ awg_interface | default('awg0') }}"
+vpn_custom_exporter_provider_map_csv: /etc/vpn-monitor/peer-provider-map.csv
+vpn_custom_exporter_provider_map_json: /var/lib/vpn-custom-exporter/peer-provider-map.json
+vpn_custom_exporter_asn_state_dir: /var/lib/vpn-asn
+vpn_custom_exporter_asn_table_path: /var/lib/vpn-asn/ip2asn.tsv.gz
+vpn_custom_exporter_asn_table_url: https://iptoasn.com/data/ip2asn-v4-u32.tsv.gz

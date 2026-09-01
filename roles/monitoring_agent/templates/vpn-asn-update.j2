@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Refresh the local IP-to-ASN table. No user/client data leaves the server.
+set -euo pipefail
+
+D="{{ vpn_custom_exporter_asn_state_dir }}"
+URL="{{ vpn_custom_exporter_asn_table_url }}"
+mkdir -p "$D"
+
+T="$(mktemp "$D/.new-XXXXXX.gz")"
+trap 'rm -f "$T"' EXIT
+
+curl -fsS --max-time 180 -o "$T" "$URL"
+gzip -t "$T"
+[[ $(stat -c %s "$T") -gt 1000000 ]] || { echo "ASN table is suspiciously small" >&2; exit 1; }
+mv -f "$T" "$D/ip2asn.tsv.gz"
+trap - EXIT
+chmod 644 "$D/ip2asn.tsv.gz"
+echo "ASN table updated: $(date -u +%F' '%T) UTC"

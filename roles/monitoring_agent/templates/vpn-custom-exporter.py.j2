@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Project-specific VPN Prometheus exporter.
 
-This is the target service shape for the current custom monitoring logic.
-It should expose privacy-aware metrics and leave alert delivery to Alertmanager.
+Keeps the useful signal from the legacy vpn-monitor/vpn-tg pipeline while
+leaving alert delivery to Prometheus and Alertmanager.
 """
+import csv
+import bisect
+import hashlib
+import gzip
+import json
 import os
+from array import array
+from pathlib import Path
 import subprocess
 import time
 
@@ -15,10 +22,160 @@ PORT = int(os.environ.get("PORT", "9187"))
 INTERVAL = int(os.environ.get("INTERVAL", "30"))
 AWG_COMMAND = os.environ.get("AWG_COMMAND", "awg")
 AWG_INTERFACE = os.environ.get("AWG_INTERFACE", "awg0")
+PROVIDER_MAP_CSV = Path(os.environ.get("PROVIDER_MAP_CSV", "/etc/vpn-monitor/peer-provider-map.csv"))
+PROVIDER_MAP_JSON = Path(os.environ.get("PROVIDER_MAP_JSON", "/var/lib/vpn-custom-exporter/peer-provider-map.json"))
+ASN_TABLE = os.environ.get("ASN_TABLE", "/var/lib/vpn-asn/ip2asn.tsv.gz")
+ACTIVE_HANDSHAKE_SECONDS = int(os.environ.get("ACTIVE_HANDSHAKE_SECONDS", "180"))
+
+FRIENDLY_ASN = {
+    8359: "МТС",
+    16345: "Билайн",
+    3216: "Билайн",
+    8402: "Билайн",
+    31133: "Мегафон",
+    12714: "Мегафон",
+    31213: "Мегафон",
+    25159: "Мегафон",
+    12389: "Ростелеком",
+    42610: "Ростелеком",
+    21479: "Ростелеком",
+    2585: "Оптик Телеком",
+    20485: "ТрансТелеКом",
+}
 
 ACTIVE_PEERS = Gauge("vpn_awg_active_peers", "Active AWG peers", ["interface"])
 TOTAL_PEERS = Gauge("vpn_awg_total_peers", "Total AWG peers", ["interface"])
+PEER_HANDSHAKE_AGE = Gauge(
+    "vpn_awg_peer_handshake_age_seconds",
+    "AWG peer handshake age in seconds",
+    ["interface", "peer", "provider"],
+)
+PEER_RX_BYTES = Gauge("vpn_awg_peer_rx_bytes_total", "AWG peer received bytes", ["interface", "peer", "provider"])
+PEER_TX_BYTES = Gauge("vpn_awg_peer_tx_bytes_total", "AWG peer transmitted bytes", ["interface", "peer", "provider"])
+PEER_RX_DELTA = Gauge("vpn_awg_peer_rx_delta_bytes", "AWG peer received byte delta since previous sample", ["interface", "peer", "provider"])
+PEER_TX_DELTA = Gauge("vpn_awg_peer_tx_delta_bytes", "AWG peer transmitted byte delta since previous sample", ["interface", "peer", "provider"])
+PROVIDER_ACTIVE_PEERS = Gauge("vpn_operator_active_peers", "Active AWG peers by provider", ["interface", "provider"])
+PROVIDER_TOTAL_PEERS = Gauge("vpn_operator_total_peers", "Total AWG peers by provider", ["interface", "provider"])
+PROVIDER_RX_BYTES = Gauge("vpn_operator_rx_bytes_total", "AWG received bytes by provider", ["interface", "provider"])
+PROVIDER_TX_BYTES = Gauge("vpn_operator_tx_bytes_total", "AWG transmitted bytes by provider", ["interface", "provider"])
+PROVIDER_RX_DELTA = Gauge("vpn_operator_rx_delta_bytes", "AWG received byte delta by provider", ["interface", "provider"])
+PROVIDER_TX_DELTA = Gauge("vpn_operator_tx_delta_bytes", "AWG transmitted byte delta by provider", ["interface", "provider"])
+STALL_DETECTED = Gauge("vpn_stall_detected", "AWG traffic stall detected", ["interface"])
 LAST_SUCCESS = Gauge("vpn_sampler_last_success_timestamp_seconds", "Last successful AWG sample timestamp", ["interface"])
+PROVIDER_MAPPING_LAST_SUCCESS = Gauge(
+    "vpn_provider_mapping_last_success_timestamp_seconds",
+    "Last successful provider mapping load timestamp",
+    ["interface"],
+)
+PROVIDER_MAPPING_ENTRIES = Gauge("vpn_provider_mapping_entries", "Provider mapping entry count", ["interface"])
+
+previous_samples = {}
+provider_resolver = None
+
+
+def clean_asn_description(description):
+    value = (description or "").split()[0] if description else ""
+    for suffix in ("-AS", "-ASN", "_AS"):
+        if value.upper().endswith(suffix):
+            value = value[: -len(suffix)]
+    if value.upper().startswith("AS-"):
+        value = value[3:]
+    value = value.strip("-_.")
+    return (value[:16] or "unknown").replace(",", " ")
+
+
+class ProviderResolver:
+    def __init__(self, path):
+        self.path = path
+        self.mtime = None
+        self.starts = array("L")
+        self.ends = array("L")
+        self.asns = array("L")
+        self.labels = {}
+        self.cache = {}
+        self.loaded = False
+        self.refresh()
+
+    def refresh(self):
+        try:
+            mtime = os.path.getmtime(self.path)
+        except OSError:
+            self.loaded = False
+            return
+        if self.loaded and self.mtime == mtime:
+            return
+
+        starts = array("L")
+        ends = array("L")
+        asns = array("L")
+        labels = {}
+        with gzip.open(self.path, "rt", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 5:
+                    continue
+                try:
+                    start = int(parts[0])
+                    end = int(parts[1])
+                    asn = int(parts[2])
+                except ValueError:
+                    continue
+                if asn == 0:
+                    continue
+                starts.append(start)
+                ends.append(end)
+                asns.append(asn)
+                if asn not in labels:
+                    labels[asn] = FRIENDLY_ASN.get(asn) or clean_asn_description(parts[4])
+
+        self.starts = starts
+        self.ends = ends
+        self.asns = asns
+        self.labels = labels
+        self.cache = {}
+        self.mtime = mtime
+        self.loaded = len(self.starts) > 1000
+
+    @staticmethod
+    def ip_to_int(ip):
+        parts = ip.split(".")
+        if len(parts) != 4:
+            return None
+        value = 0
+        for part in parts:
+            octet = int(part)
+            if not 0 <= octet <= 255:
+                return None
+            value = value * 256 + octet
+        return value
+
+    def label(self, endpoint):
+        if not endpoint or endpoint in ("none", "(none)", "-"):
+            return "none"
+        ip = endpoint.rsplit(":", 1)[0].strip("[]")
+        if ip in self.cache:
+            return self.cache[ip]
+        out = "unknown"
+        try:
+            value = self.ip_to_int(ip)
+            if value is None:
+                out = "IPv6" if ":" in ip else "unknown"
+            elif not self.loaded:
+                out = "no_table"
+            else:
+                index = bisect.bisect_right(self.starts, value) - 1
+                if 0 <= index < len(self.starts) and value <= self.ends[index]:
+                    out = self.labels.get(self.asns[index], "unknown")
+        except Exception:
+            out = "unknown"
+        if len(self.cache) > 20000:
+            self.cache.clear()
+        self.cache[ip] = out
+        return out
+
+
+def peer_fingerprint(public_key):
+    return hashlib.sha256(public_key.encode()).hexdigest()[:12]
 
 
 def run_awg_dump():
@@ -30,25 +187,134 @@ def run_awg_dump():
     )
 
 
+def normalize_provider(value):
+    value = (value or "").strip()
+    return value if value else "unknown"
+
+
+def load_provider_map(now):
+    mapping = {}
+    for path in (PROVIDER_MAP_JSON, PROVIDER_MAP_CSV):
+        if not path.exists():
+            continue
+        try:
+            if path.suffix == ".json":
+                raw = json.loads(path.read_text())
+                if isinstance(raw, dict):
+                    mapping.update({str(k): normalize_provider(v) for k, v in raw.items()})
+                elif isinstance(raw, list):
+                    for row in raw:
+                        if isinstance(row, dict):
+                            key = row.get("peer") or row.get("public_key") or row.get("fingerprint") or row.get("allowed_ip")
+                            provider = row.get("provider") or row.get("operator") or row.get("asn")
+                            if key:
+                                mapping[str(key)] = normalize_provider(provider)
+            else:
+                with path.open(newline="") as fh:
+                    reader = csv.DictReader(fh)
+                    for row in reader:
+                        key = row.get("peer") or row.get("public_key") or row.get("fingerprint") or row.get("allowed_ip")
+                        provider = row.get("provider") or row.get("operator") or row.get("asn")
+                        if key:
+                            mapping[str(key)] = normalize_provider(provider)
+            PROVIDER_MAPPING_LAST_SUCCESS.labels(interface=AWG_INTERFACE).set(now)
+            PROVIDER_MAPPING_ENTRIES.labels(interface=AWG_INTERFACE).set(len(mapping))
+            return mapping
+        except Exception:
+            continue
+    PROVIDER_MAPPING_ENTRIES.labels(interface=AWG_INTERFACE).set(0)
+    return mapping
+
+
+def refresh_provider_resolver(now):
+    global provider_resolver
+    if provider_resolver is None:
+        provider_resolver = ProviderResolver(ASN_TABLE)
+    provider_resolver.refresh()
+    if provider_resolver.loaded:
+        PROVIDER_MAPPING_LAST_SUCCESS.labels(interface=AWG_INTERFACE).set(now)
+        PROVIDER_MAPPING_ENTRIES.labels(interface=AWG_INTERFACE).set(len(provider_resolver.starts))
+
+
+def provider_for_peer(mapping, public_key, fingerprint, allowed_ips, endpoint):
+    candidates = [public_key, fingerprint]
+    for allowed_ip in allowed_ips.split(","):
+        candidate = allowed_ip.strip()
+        if candidate:
+            candidates.append(candidate)
+            candidates.append(candidate.split("/")[0])
+    for candidate in candidates:
+        if candidate in mapping:
+            return mapping[candidate]
+    return provider_resolver.label(endpoint)
+
+
 def sample():
     now = int(time.time())
     dump = run_awg_dump()
+    provider_map = load_provider_map(now)
+    refresh_provider_resolver(now)
     total = 0
     active = 0
+    providers = {}
+    moving_active = 0
+
     for line in dump.splitlines()[1:]:
         parts = line.split("\t")
-        if len(parts) < 8:
+        if len(parts) < 7:
             continue
-        total += 1
+
+        public_key = parts[0]
+        endpoint = parts[2]
+        allowed_ips = parts[3]
         try:
             handshake = int(parts[4])
+            rx = int(parts[5])
+            tx = int(parts[6])
         except ValueError:
-            handshake = 0
-        if handshake and now - handshake < 180:
+            continue
+
+        total += 1
+        fingerprint = peer_fingerprint(public_key)
+        provider = provider_for_peer(provider_map, public_key, fingerprint, allowed_ips, endpoint)
+        handshake_age = now - handshake if handshake else 0
+        is_active = bool(handshake and handshake_age < ACTIVE_HANDSHAKE_SECONDS)
+        if is_active:
             active += 1
+
+        prev_rx, prev_tx = previous_samples.get(public_key, (rx, tx))
+        rx_delta = max(0, rx - prev_rx)
+        tx_delta = max(0, tx - prev_tx)
+        previous_samples[public_key] = (rx, tx)
+        if is_active and (rx_delta > 0 or tx_delta > 0):
+            moving_active += 1
+
+        PEER_HANDSHAKE_AGE.labels(interface=AWG_INTERFACE, peer=fingerprint, provider=provider).set(handshake_age)
+        PEER_RX_BYTES.labels(interface=AWG_INTERFACE, peer=fingerprint, provider=provider).set(rx)
+        PEER_TX_BYTES.labels(interface=AWG_INTERFACE, peer=fingerprint, provider=provider).set(tx)
+        PEER_RX_DELTA.labels(interface=AWG_INTERFACE, peer=fingerprint, provider=provider).set(rx_delta)
+        PEER_TX_DELTA.labels(interface=AWG_INTERFACE, peer=fingerprint, provider=provider).set(tx_delta)
+
+        bucket = providers.setdefault(provider, {"total": 0, "active": 0, "rx": 0, "tx": 0, "drx": 0, "dtx": 0})
+        bucket["total"] += 1
+        bucket["active"] += 1 if is_active else 0
+        bucket["rx"] += rx
+        bucket["tx"] += tx
+        bucket["drx"] += rx_delta
+        bucket["dtx"] += tx_delta
+
     TOTAL_PEERS.labels(interface=AWG_INTERFACE).set(total)
     ACTIVE_PEERS.labels(interface=AWG_INTERFACE).set(active)
+    STALL_DETECTED.labels(interface=AWG_INTERFACE).set(1 if active > 0 and moving_active == 0 else 0)
     LAST_SUCCESS.labels(interface=AWG_INTERFACE).set(now)
+
+    for provider, values in providers.items():
+        PROVIDER_TOTAL_PEERS.labels(interface=AWG_INTERFACE, provider=provider).set(values["total"])
+        PROVIDER_ACTIVE_PEERS.labels(interface=AWG_INTERFACE, provider=provider).set(values["active"])
+        PROVIDER_RX_BYTES.labels(interface=AWG_INTERFACE, provider=provider).set(values["rx"])
+        PROVIDER_TX_BYTES.labels(interface=AWG_INTERFACE, provider=provider).set(values["tx"])
+        PROVIDER_RX_DELTA.labels(interface=AWG_INTERFACE, provider=provider).set(values["drx"])
+        PROVIDER_TX_DELTA.labels(interface=AWG_INTERFACE, provider=provider).set(values["dtx"])
 
 
 def main():
@@ -63,4 +329,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
