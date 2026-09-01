@@ -28,13 +28,28 @@ scripts/deploy-server
 ```
 
 Скрипт сам спросит роль (`main` или `reserve`), IP сервера и сколько Amnezia
-ключей генерить. Если количество не ввести, будет 100. Он сам создаёт
-внутренний Ansible inventory, запускает deploy и проверяет результат.
+ключей генерить. Для `main` он также спросит, подключать ли Telegram alerts,
+и пароль администратора Grafana. Если количество не ввести, будет 100. Он сам
+создаёт внутренний Ansible inventory, запускает VPN core, monitoring layer и
+проверяет результат. Grafana на `main` публикуется наружу через nginx HTTPS с
+Basic Auth; Prometheus и Alertmanager остаются на localhost.
 
 Можно без вопросов:
 
 ```bash
 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
+```
+
+Для полностью безвопросного `main` deploy с алертами:
+
+```bash
+VPN_CLIENT_COUNT=100 \
+VPN_TELEGRAM_ALERTS=true \
+VPN_TELEGRAM_BOT_TOKEN='<bot-token>' \
+VPN_TELEGRAM_CHAT_ID='-1001234567890' \
+VPN_GRAFANA_ADMIN_PASSWORD='<strong-password>' \
+VPN_GRAFANA_BASIC_AUTH_PASSWORD='<strong-password>' \
+scripts/deploy-server main 1.2.3.4
 ```
 
 ### Удалить то, что развернули
@@ -119,6 +134,7 @@ playbooks/
   preflight.yml
   vpn-core.yml
   monitoring-agents.yml
+  monitoring.yml
   validate.yml
   roles/
   base/
@@ -129,6 +145,7 @@ playbooks/
   xray_reality/
   vpn_clients/
   monitoring_agent/
+  monitoring_stack/
   alerting/
   validation/
 scripts/

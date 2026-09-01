@@ -1,0 +1,15 @@
+---
+- name: Deploy VPN monitoring layer
+  hosts: vpn_servers
+  gather_facts: true
+  become: true
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/vpn_servers.yml
+  roles:
+    - monitoring_agent
+    - role: monitoring_stack
+      when: vpn_server_role == "main"
+    - role: alerting
+      when: vpn_server_role == "main"
+    - validation

@@ -1,0 +1,17 @@
+---
+monitoring_prometheus_listen_address: "127.0.0.1:9090"
+monitoring_alertmanager_listen_address: "127.0.0.1:9093"
+monitoring_grafana_http_addr: "127.0.0.1"
+monitoring_grafana_http_port: 3000
+monitoring_grafana_admin_user: admin
+monitoring_grafana_admin_password: ""
+monitoring_grafana_external_enabled: true
+monitoring_grafana_external_port: 443
+monitoring_grafana_external_server_name: "{{ vpn_public_endpoint | default(ansible_host) }}"
+monitoring_grafana_basic_auth_user: admin
+monitoring_grafana_basic_auth_password: "{{ monitoring_grafana_admin_password }}"
+monitoring_grafana_htpasswd_path: /etc/nginx/.grafana.htpasswd
+monitoring_grafana_tls_dir: /etc/grafana/tls
+monitoring_alertmanager_telegram_enabled: false
+monitoring_alertmanager_telegram_bot_token: ""
+monitoring_alertmanager_telegram_chat_id: ""

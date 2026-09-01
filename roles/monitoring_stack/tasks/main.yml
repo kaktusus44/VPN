@@ -1,0 +1,258 @@
+---
+- name: Install monitoring stack dependencies
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - gnupg
+      - nginx
+      - apache2-utils
+      - openssl
+      - software-properties-common
+      - wget
+      - prometheus
+      - prometheus-alertmanager
+    state: present
+    update_cache: true
+
+- name: Add Grafana apt key
+  ansible.builtin.apt_key:
+    url: https://apt.grafana.com/gpg.key
+    state: present
+
+- name: Add Grafana apt repository
+  ansible.builtin.apt_repository:
+    repo: deb https://apt.grafana.com stable main
+    state: present
+    filename: grafana
+
+- name: Install Grafana
+  ansible.builtin.apt:
+    name: grafana
+    state: present
+    update_cache: true
+
+- name: Create Prometheus rules directory
+  ansible.builtin.file:
+    path: /etc/prometheus/rules
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create Alertmanager templates directory
+  ansible.builtin.file:
+    path: /etc/prometheus/alertmanager-templates
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install Alertmanager Telegram message template
+  ansible.builtin.template:
+    src: alertmanager-telegram.tmpl.j2
+    dest: /etc/prometheus/alertmanager-templates/telegram.tmpl
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart alertmanager
+
+- name: Configure Prometheus
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Configure Prometheus service defaults
+  ansible.builtin.template:
+    src: prometheus.default.j2
+    dest: /etc/default/prometheus
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Configure Alertmanager
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /etc/prometheus/alertmanager.yml
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: "{{ monitoring_alertmanager_telegram_enabled | bool }}"
+  notify: Restart alertmanager
+
+- name: Configure Alertmanager service defaults
+  ansible.builtin.template:
+    src: prometheus-alertmanager.default.j2
+    dest: /etc/default/prometheus-alertmanager
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart alertmanager
+
+- name: Configure Grafana
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: /etc/grafana/grafana.ini
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: "{{ monitoring_grafana_admin_password | length > 0 }}"
+  notify: Restart grafana
+
+- name: Create Grafana TLS directory
+  ansible.builtin.file:
+    path: "{{ monitoring_grafana_tls_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when: monitoring_grafana_external_enabled | bool
+
+- name: Generate self-signed Grafana TLS certificate
+  ansible.builtin.command: >
+    openssl req -x509 -nodes -newkey rsa:2048 -days 825
+    -keyout {{ monitoring_grafana_tls_dir }}/grafana.key
+    -out {{ monitoring_grafana_tls_dir }}/grafana.crt
+    -subj /CN={{ monitoring_grafana_external_server_name }}
+  args:
+    creates: "{{ monitoring_grafana_tls_dir }}/grafana.crt"
+  when: monitoring_grafana_external_enabled | bool
+  notify: Restart nginx
+
+- name: Secure Grafana TLS private key
+  ansible.builtin.file:
+    path: "{{ monitoring_grafana_tls_dir }}/grafana.key"
+    owner: root
+    group: root
+    mode: "0600"
+  when: monitoring_grafana_external_enabled | bool
+
+- name: Install Grafana Basic Auth password file
+  ansible.builtin.command: >
+    htpasswd -bcB {{ monitoring_grafana_htpasswd_path }}
+    {{ monitoring_grafana_basic_auth_user }}
+    {{ monitoring_grafana_basic_auth_password }}
+  no_log: true
+  when: monitoring_grafana_external_enabled | bool
+  notify: Restart nginx
+
+- name: Configure Grafana nginx reverse proxy
+  ansible.builtin.template:
+    src: nginx-grafana.conf.j2
+    dest: /etc/nginx/sites-available/grafana.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: monitoring_grafana_external_enabled | bool
+  notify: Restart nginx
+
+- name: Enable Grafana nginx reverse proxy
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/grafana.conf
+    dest: /etc/nginx/sites-enabled/grafana.conf
+    state: link
+  when: monitoring_grafana_external_enabled | bool
+  notify: Restart nginx
+
+- name: Disable default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  when: monitoring_grafana_external_enabled | bool
+  notify: Restart nginx
+
+- name: Allow external HTTPS for Grafana
+  community.general.ufw:
+    rule: allow
+    port: "{{ monitoring_grafana_external_port }}"
+    proto: tcp
+  when: monitoring_grafana_external_enabled | bool
+
+- name: Create Grafana datasource provisioning directory
+  ansible.builtin.file:
+    path: /etc/grafana/provisioning/datasources
+    state: directory
+    owner: root
+    group: grafana
+    mode: "0755"
+
+- name: Create Grafana dashboard provisioning directory
+  ansible.builtin.file:
+    path: /etc/grafana/provisioning/dashboards
+    state: directory
+    owner: root
+    group: grafana
+    mode: "0755"
+
+- name: Create Grafana managed dashboards directory
+  ansible.builtin.file:
+    path: /var/lib/grafana/dashboards/vpn
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: "0755"
+
+- name: Provision Grafana Prometheus datasource
+  ansible.builtin.template:
+    src: grafana-prometheus-datasource.yml.j2
+    dest: /etc/grafana/provisioning/datasources/prometheus.yml
+    owner: root
+    group: grafana
+    mode: "0644"
+  notify: Restart grafana
+
+- name: Provision Grafana VPN dashboard provider
+  ansible.builtin.template:
+    src: grafana-dashboard-provider.yml.j2
+    dest: /etc/grafana/provisioning/dashboards/vpn.yml
+    owner: root
+    group: grafana
+    mode: "0644"
+  notify: Restart grafana
+
+- name: Install Grafana server overview dashboard
+  ansible.builtin.template:
+    src: grafana-dashboard-server-overview.json.j2
+    dest: /var/lib/grafana/dashboards/vpn/server-overview.json
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  notify: Restart grafana
+
+- name: Install Grafana VPN health dashboard
+  ansible.builtin.template:
+    src: grafana-dashboard-vpn-health.json.j2
+    dest: /var/lib/grafana/dashboards/vpn/vpn-health.json
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  notify: Restart grafana
+
+- name: Enable Prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    enabled: true
+    state: started
+
+- name: Enable Alertmanager
+  ansible.builtin.systemd:
+    name: prometheus-alertmanager
+    enabled: true
+    state: started
+
+- name: Enable Grafana
+  ansible.builtin.systemd:
+    name: grafana-server
+    enabled: true
+    state: started
+
+- name: Enable nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started
+  when: monitoring_grafana_external_enabled | bool

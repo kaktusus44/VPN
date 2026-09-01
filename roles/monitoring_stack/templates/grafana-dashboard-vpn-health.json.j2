@@ -1,0 +1,78 @@
+{
+  "uid": "vpn-health",
+  "title": "VPN Health",
+  "tags": ["vpn", "amneziawg", "providers"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active peers",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(vpn_awg_active_peers)", "legendFormat": "active"}],
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"steps": [{"color": "red"}, {"color": "orange", "value": 1}, {"color": "green", "value": 5}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Total peers",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(vpn_awg_total_peers)", "legendFormat": "total"}]
+    },
+    {
+      "type": "stat",
+      "title": "Exporter freshness",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "time() - max(vpn_sampler_last_success_timestamp_seconds)", "legendFormat": "seconds"}],
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"steps": [{"color": "green"}, {"color": "orange", "value": 180}, {"color": "red", "value": 300}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Provider mapping entries",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "max(vpn_provider_mapping_entries)", "legendFormat": "entries"}],
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"steps": [{"color": "red"}, {"color": "green", "value": 1}]}}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Active peers over time",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "vpn_awg_active_peers", "legendFormat": "{{ "{{" }}instance{{ "}}" }} {{ "{{" }}interface{{ "}}" }}"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active peers by provider",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "sum by(provider) (vpn_operator_active_peers)", "legendFormat": "{{ "{{" }}provider{{ "}}" }}"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Traffic delta by provider",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [{"expr": "sum by(provider) (vpn_operator_rx_delta_bytes)", "legendFormat": "rx {{ "{{" }}provider{{ "}}" }}"}, {"expr": "sum by(provider) (vpn_operator_tx_delta_bytes)", "legendFormat": "tx {{ "{{" }}provider{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Worst handshake age by provider",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [{"expr": "max by(provider) (vpn_awg_peer_handshake_age_seconds)", "legendFormat": "{{ "{{" }}provider{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "VPN stall detection",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 6},
+      "targets": [{"expr": "vpn_stall_detected", "legendFormat": "{{ "{{" }}instance{{ "}}" }}"}]
+    },
+    {
+      "type": "bargauge",
+      "title": "Current provider distribution",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 6},
+      "targets": [{"expr": "sum by(provider) (vpn_operator_active_peers)", "legendFormat": "{{ "{{" }}provider{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    }
+  ]
+}

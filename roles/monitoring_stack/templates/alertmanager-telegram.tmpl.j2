@@ -1,0 +1,8 @@
+{{ "{{" }} define "telegram.default.message" {{ "}}" }}
+{{ "{{" }} range .Alerts {{ "}}" }}
+<b>{{ "{{" }} .Status {{ "}}" }} {{ "{{" }} .Labels.alertname {{ "}}" }}</b>
+{{ "{{" }} if .Annotations.summary {{ "}}" }}{{ "{{" }} .Annotations.summary {{ "}}" }}{{ "{{" }} end {{ "}}" }}
+{{ "{{" }} if .Labels.instance {{ "}}" }}instance: <code>{{ "{{" }} .Labels.instance {{ "}}" }}</code>{{ "{{" }} end {{ "}}" }}
+{{ "{{" }} if .Labels.provider {{ "}}" }}provider: <code>{{ "{{" }} .Labels.provider {{ "}}" }}</code>{{ "{{" }} end {{ "}}" }}
+{{ "{{" }} end {{ "}}" }}
+{{ "{{" }} end {{ "}}" }}

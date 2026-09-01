@@ -4,6 +4,11 @@ set -Eeuo pipefail
 SERVER_IP="${1:-}"
 SERVER_ROLE="${2:-}"
 CLIENT_COUNT="${VPN_CLIENT_COUNT:-}"
+TELEGRAM_ALERTS="${VPN_TELEGRAM_ALERTS:-}"
+TELEGRAM_BOT_TOKEN="${VPN_TELEGRAM_BOT_TOKEN:-}"
+TELEGRAM_CHAT_ID="${VPN_TELEGRAM_CHAT_ID:-}"
+GRAFANA_ADMIN_PASSWORD="${VPN_GRAFANA_ADMIN_PASSWORD:-}"
+GRAFANA_BASIC_AUTH_PASSWORD="${VPN_GRAFANA_BASIC_AUTH_PASSWORD:-}"
 
 if [ -z "$SERVER_IP" ]; then
   echo "Использование: scripts/redeploy-server <ip-сервера> [main|reserve]" >&2
@@ -32,6 +37,24 @@ ask_tty() {
   printf '%s' "$answer"
 }
 
+ask_tty_secret() {
+  local prompt="$1"
+  local answer
+  if [ ! -r /dev/tty ]; then
+    return 1
+  fi
+  read -r -s -p "$prompt" answer </dev/tty
+  printf '\n' >/dev/tty
+  printf '%s' "$answer"
+}
+
+random_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 24 2>/dev/null && return
+  fi
+  python3 -c 'import secrets; print(secrets.token_urlsafe(24))'
+}
+
 if [ -z "$CLIENT_COUNT" ]; then
   CLIENT_COUNT="$(ask_tty "Сколько Amnezia ключей генерить [100]: " || true)"
 fi
@@ -47,9 +70,65 @@ fi
 
 printf -v LAST_CLIENT_ID "client-%03d" "$CLIENT_COUNT"
 
+if [ "$SERVER_ROLE" = "main" ]; then
+  if [ -z "$TELEGRAM_ALERTS" ]; then
+    TELEGRAM_ALERTS="$(ask_tty "Подключить Telegram alerts через Alertmanager? [y/N]: " || true)"
+  fi
+
+  case "$TELEGRAM_ALERTS" in
+    y|Y|yes|YES|да|Да|ДА|1|true|TRUE)
+      TELEGRAM_ALERTS="true"
+      ;;
+    *)
+      TELEGRAM_ALERTS="false"
+      ;;
+  esac
+
+  if [ "$TELEGRAM_ALERTS" = "true" ]; then
+    if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+      TELEGRAM_BOT_TOKEN="$(ask_tty_secret "Telegram bot token для alerts: " || true)"
+    fi
+    if [ -z "$TELEGRAM_CHAT_ID" ]; then
+      TELEGRAM_CHAT_ID="$(ask_tty "Telegram chat/channel id для alerts: " || true)"
+    fi
+    if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+      echo "Для Telegram alerts нужны token и chat/channel id." >&2
+      exit 1
+    fi
+  fi
+
+  if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
+    GRAFANA_ADMIN_PASSWORD="$(ask_tty_secret "Grafana admin password [auto-generate]: " || true)"
+  fi
+  if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
+    GRAFANA_ADMIN_PASSWORD="$(random_secret)"
+    echo "Grafana admin password сгенерирован автоматически. Сохраните его из этого вывода: $GRAFANA_ADMIN_PASSWORD"
+  fi
+
+  if [ -z "$GRAFANA_BASIC_AUTH_PASSWORD" ]; then
+    GRAFANA_BASIC_AUTH_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
+  fi
+fi
+
+if [ "$SERVER_ROLE" = "main" ]; then
+  MONITORING_STACK_SUMMARY="Monitoring stack: Prometheus + Alertmanager + Grafana"
+  GRAFANA_ACCESS_SUMMARY="Grafana доступна извне по HTTPS + Basic Auth: https://$SERVER_IP/ (self-signed TLS)"
+else
+  MONITORING_STACK_SUMMARY="Monitoring stack: не ставился на reserve; ставится на main"
+  GRAFANA_ACCESS_SUMMARY="Grafana живёт на main и доступна только из VPN"
+fi
+
 cd "$(dirname "$0")/.."
 
 ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
+MONITORING_EXTRA_VARS_FILE=""
+
+cleanup() {
+  if [ -n "$MONITORING_EXTRA_VARS_FILE" ]; then
+    rm -f "$MONITORING_EXTRA_VARS_FILE"
+  fi
+}
+trap cleanup EXIT
 
 if [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
   echo "Совместимая версия Ansible не установлена." >&2
@@ -68,7 +147,8 @@ cat <<EOF
   1. read-only preflight
   2. destructive reset управляемого VPN-стека
   3. deploy playbooks/vpn-core.yml
-  4. итоговый read-only preflight
+  4. deploy monitoring layer
+  5. итоговый read-only preflight
 
 Что reset удаляет/останавливает:
   awg/wg/xray/unbound/fail2ban/vpn-custom-exporter
@@ -100,19 +180,45 @@ if [ "${VPN_RESET_CONFIRM:-}" != "DESTROY" ]; then
 fi
 
 echo
-echo "==> [1/4] Preflight до reset"
+echo "==> [1/5] Preflight до reset"
 scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
 
 echo
-echo "==> [2/4] Destroy managed VPN stack"
+echo "==> [2/5] Destroy managed VPN stack"
 "$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/reset-vpn.yml -e vpn_reset_confirm=DESTROY
 
 echo
-echo "==> [3/4] Deploy current managed VPN stack"
+echo "==> [3/5] Deploy current managed VPN stack"
 "$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/vpn-core.yml -e "vpn_client_count=$CLIENT_COUNT"
 
 echo
-echo "==> [4/4] Preflight после deploy"
+echo "==> [4/5] Deploy monitoring layer"
+if [ "$SERVER_ROLE" = "main" ]; then
+  MONITORING_EXTRA_VARS_FILE="$(mktemp)"
+  export TELEGRAM_ALERTS TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID GRAFANA_ADMIN_PASSWORD GRAFANA_BASIC_AUTH_PASSWORD
+  python3 - "$MONITORING_EXTRA_VARS_FILE" <<'PY'
+import json
+import os
+import sys
+
+data = {
+    "monitoring_alertmanager_telegram_enabled": os.environ["TELEGRAM_ALERTS"] == "true",
+    "monitoring_alertmanager_telegram_bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+    "monitoring_alertmanager_telegram_chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""),
+    "monitoring_grafana_admin_password": os.environ.get("GRAFANA_ADMIN_PASSWORD", ""),
+    "monitoring_grafana_basic_auth_password": os.environ.get("GRAFANA_BASIC_AUTH_PASSWORD", ""),
+}
+with open(sys.argv[1], "w") as fh:
+    json.dump(data, fh)
+PY
+  chmod 600 "$MONITORING_EXTRA_VARS_FILE"
+  "$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/monitoring.yml -e "@$MONITORING_EXTRA_VARS_FILE"
+else
+  "$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/monitoring.yml
+fi
+
+echo
+echo "==> [5/5] Preflight после deploy"
 scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
 
 cat <<EOF
@@ -127,6 +233,7 @@ cat <<EOF
   preflight до reset: выполнен
   reset управляемого VPN-стека: выполнен
   deploy playbooks/vpn-core.yml: выполнен
+  deploy playbooks/monitoring.yml: выполнен
   preflight после deploy: выполнен
 
 Развернули:
@@ -135,6 +242,8 @@ cat <<EOF
   Резервный канал: Xray VLESS Reality, TCP/8443 xhttp и TCP/8444 tcp
   Firewall/UFW + fail2ban
   Клиенты AmneziaVPN/AmneziaWG: $CLIENT_COUNT штук
+  Monitoring agent: node_exporter + vpn-custom-exporter
+  $MONITORING_STACK_SUMMARY
 
 Клиентские артефакты на VPS:
   /var/lib/vpn/amnezia-vpn-links.txt       # $CLIENT_COUNT ссылок vpn://
@@ -143,7 +252,8 @@ cat <<EOF
   /var/lib/vpn/client-links.txt             # индекс экспортов + Xray/VLESS links
 
 Следующий этап:
-  мониторинг и остальные сервисы запускаются отдельными playbook/ролями
+  $GRAFANA_ACCESS_SUMMARY
+  Prometheus и Alertmanager слушают localhost и не открыты наружу
 
 Повторить:
   cd "$PWD"

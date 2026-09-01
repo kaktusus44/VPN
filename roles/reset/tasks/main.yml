@@ -12,6 +12,11 @@
     - unbound
     - fail2ban
     - vpn-custom-exporter
+    - vpn-asn-update.timer
+    - prometheus-node-exporter
+    - prometheus
+    - prometheus-alertmanager
+    - grafana-server
   failed_when: false
 
 - name: Disable UFW before removing rules
@@ -25,7 +30,10 @@
     state: absent
   loop:
     - /etc/systemd/system/vpn-custom-exporter.service
+    - /etc/systemd/system/vpn-asn-update.service
+    - /etc/systemd/system/vpn-asn-update.timer
     - /usr/local/bin/vpn-custom-exporter.py
+    - /usr/local/bin/vpn-asn-update
     - /etc/fail2ban/jail.local
     - /etc/wireguard/awg0.conf
     - /etc/wireguard/wg0.conf
@@ -33,7 +41,12 @@
     - /usr/local/etc/xray/config.json
     - /etc/xray/config.json
     - /etc/unbound/unbound.conf.d/vpn.conf
+    - /etc/prometheus/rules/vpn-alert-rules.yml
+    - /etc/prometheus/alertmanager.yml
+    - /etc/grafana/provisioning/datasources/prometheus.yml
     - /var/lib/vpn
+    - /var/lib/vpn-custom-exporter
+    - /var/lib/vpn-asn
 
 - name: Reload systemd after unit removal
   ansible.builtin.systemd:
@@ -47,6 +60,10 @@
       - unbound
       - wireguard-tools
       - python3-prometheus-client
+      - prometheus-node-exporter
+      - prometheus
+      - prometheus-alertmanager
+      - grafana
     state: absent
     purge: true
     autoremove: true

@@ -6,8 +6,15 @@
       - python3-prometheus-client
       - curl
       - gzip
+      - prometheus-node-exporter
     state: present
     update_cache: true
+
+- name: Enable node exporter service
+  ansible.builtin.systemd:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started
 
 - name: Create custom exporter group
   ansible.builtin.group:

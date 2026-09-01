@@ -1,0 +1,19 @@
+[server]
+http_addr = {{ monitoring_grafana_http_addr }}
+http_port = {{ monitoring_grafana_http_port }}
+domain = {{ monitoring_grafana_external_server_name }}
+root_url = https://{{ monitoring_grafana_external_server_name }}:{{ monitoring_grafana_external_port }}/
+
+[security]
+admin_user = {{ monitoring_grafana_admin_user }}
+{% if monitoring_grafana_admin_password | length > 0 %}
+admin_password = {{ monitoring_grafana_admin_password }}
+{% endif %}
+disable_gravatar = true
+
+[users]
+allow_sign_up = false
+allow_org_create = false
+
+[auth.anonymous]
+enabled = false

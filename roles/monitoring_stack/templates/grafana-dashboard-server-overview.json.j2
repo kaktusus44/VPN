@@ -1,0 +1,80 @@
+{
+  "uid": "vpn-server-overview",
+  "title": "VPN Server Overview",
+  "tags": ["vpn", "server"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "query": "label_values(up, instance)",
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "CPU usage",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"$instance\"}[5m])) * 100)", "legendFormat": "{{ "{{" }}instance{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"steps": [{"color": "green"}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Memory used",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "(1 - node_memory_MemAvailable_bytes{instance=~\"$instance\"} / node_memory_MemTotal_bytes{instance=~\"$instance\"}) * 100", "legendFormat": "{{ "{{" }}instance{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"steps": [{"color": "green"}, {"color": "orange", "value": 75}, {"color": "red", "value": 90}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Disk used",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\",instance=~\"$instance\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\",instance=~\"$instance\"}) * 100", "legendFormat": "{{ "{{" }}instance{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"steps": [{"color": "green"}, {"color": "orange", "value": 75}, {"color": "red", "value": 90}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Host up",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "up{job=\"node\",instance=~\"$instance\"}", "legendFormat": "{{ "{{" }}instance{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"steps": [{"color": "red"}, {"color": "green", "value": 1}]}}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU usage by instance",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"$instance\"}[5m])) * 100)", "legendFormat": "{{ "{{" }}instance{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Load average",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "node_load1{instance=~\"$instance\"}", "legendFormat": "load1 {{ "{{" }}instance{{ "}}" }}"}, {"expr": "node_load5{instance=~\"$instance\"}", "legendFormat": "load5 {{ "{{" }}instance{{ "}}" }}"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Network throughput",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [{"expr": "sum by(instance) (rate(node_network_receive_bytes_total{device!~\"lo|docker.*|veth.*\",instance=~\"$instance\"}[5m]))", "legendFormat": "rx {{ "{{" }}instance{{ "}}" }}"}, {"expr": "sum by(instance) (rate(node_network_transmit_bytes_total{device!~\"lo|docker.*|veth.*\",instance=~\"$instance\"}[5m]))", "legendFormat": "tx {{ "{{" }}instance{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Root filesystem free",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [{"expr": "node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\",instance=~\"$instance\"}", "legendFormat": "{{ "{{" }}instance{{ "}}" }}"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    }
+  ]
+}
