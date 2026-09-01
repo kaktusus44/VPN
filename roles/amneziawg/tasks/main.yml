@@ -4,10 +4,10 @@
     name:
       - software-properties-common
       - ca-certificates
+      - curl
       - gnupg
       - gnupg2
       - iptables
-      - python3-launchpadlib
     state: present
     update_cache: true
 
@@ -17,15 +17,46 @@
     state: present
   failed_when: false
 
-- name: Add AmneziaWG PPA
-  ansible.builtin.apt_repository:
-    repo: ppa:amnezia/ppa
-    state: present
-    update_cache: false
-  register: amneziawg_ppa
-  until: amneziawg_ppa is succeeded
+- name: Create APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download AmneziaWG PPA signing key
+  ansible.builtin.get_url:
+    url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x75C9DD72C799870E310542E24166F2C257290828"
+    dest: /etc/apt/keyrings/amneziawg.asc
+    owner: root
+    group: root
+    mode: "0644"
+    force: true
+  register: amneziawg_ppa_key
+  until: amneziawg_ppa_key is succeeded
   retries: 5
   delay: 20
+
+- name: Dearmor AmneziaWG PPA signing key
+  ansible.builtin.command:
+    cmd: gpg --dearmor --yes -o /etc/apt/keyrings/amneziawg.gpg /etc/apt/keyrings/amneziawg.asc
+  changed_when: amneziawg_ppa_key.changed
+
+- name: Remove legacy add-apt-repository source list
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list.d/amnezia-ubuntu-ppa-{{ ansible_distribution_release }}.list"
+    state: absent
+
+- name: Add AmneziaWG PPA source list
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/amneziawg-ppa.list
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      deb [signed-by=/etc/apt/keyrings/amneziawg.gpg] https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu {{ ansible_distribution_release }} main
+  register: amneziawg_ppa_source
 
 - name: Refresh apt cache after adding AmneziaWG PPA
   ansible.builtin.apt:
