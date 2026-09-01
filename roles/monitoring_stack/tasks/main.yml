@@ -14,10 +14,16 @@
     state: present
     update_cache: true
 
-- name: Add Grafana apt key
+- name: Check manually installed Grafana apt key
+  ansible.builtin.stat:
+    path: /etc/apt/trusted.gpg.d/grafana.asc
+  register: grafana_trusted_key
+
+- name: Add Grafana apt key when missing
   ansible.builtin.apt_key:
     url: https://apt.grafana.com/gpg.key
     state: present
+  when: not grafana_trusted_key.stat.exists
 
 - name: Add Grafana apt repository
   ansible.builtin.apt_repository:
