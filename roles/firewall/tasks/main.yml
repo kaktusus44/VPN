@@ -1,4 +1,12 @@
 ---
+- name: Allow SSH before tightening default UFW policies
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item }}"
+    port: "{{ ansible_port | default(22) }}"
+    proto: tcp
+  loop: "{{ vpn_allowed_ssh_sources | default(['0.0.0.0/0']) }}"
+
 - name: Reset default UFW policies
   community.general.ufw:
     direction: "{{ item.direction }}"

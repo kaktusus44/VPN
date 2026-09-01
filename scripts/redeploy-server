@@ -71,6 +71,26 @@ format_duration() {
   fi
 }
 
+wait_for_ssh() {
+  local label="$1"
+  local attempt
+
+  for attempt in $(seq 1 5); do
+    echo "$label: проверка SSH $attempt/5"
+    if scripts/check-server "$SERVER_IP" "$SERVER_ROLE"; then
+      return 0
+    fi
+
+    if [ "$attempt" -lt 5 ]; then
+      echo "$label: SSH пока недоступен, повтор через 10 секунд..."
+      sleep 10
+    fi
+  done
+
+  echo "$label: SSH/Ansible не восстановился за 5 попыток." >&2
+  return 1
+}
+
 if [ -z "$CLIENT_COUNT" ]; then
   CLIENT_COUNT="$(ask_tty "Сколько Amnezia ключей генерить [100]: " || true)"
 fi
@@ -213,6 +233,8 @@ echo "==> [2/5] Destroy managed VPN stack"
 echo
 echo "==> [3/5] Deploy current managed VPN stack"
 "$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/vpn-core.yml -e "vpn_client_count=$CLIENT_COUNT"
+
+wait_for_ssh "После VPN core"
 
 echo
 echo "==> [4/5] Deploy monitoring layer"
