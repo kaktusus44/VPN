@@ -51,22 +51,30 @@ def qcompress(raw):
     return len(raw).to_bytes(4, "big") + zlib.compress(raw)
 
 
-def amnezia_vpn_link(config):
+def amnezia_vpn_link(config, client_private, client_public, address, server_public, allowed_ips):
     last_config = {
         "config": config,
-        "mtu": AWG_MTU,
+        "hostName": VPN_PUBLIC_ENDPOINT,
         "port": AWG_PORT,
+        "client_priv_key": client_private,
+        "client_ip": address,
+        "client_pub_key": client_public,
+        "server_pub_key": server_public,
+        "client_id": client_public,
+        "allowed_ips": allowed_ips.split(", "),
+        "persistent_keep_alive": "25",
+        "mtu": str(AWG_MTU),
     }
     payload = {
         "dns1": DNS_IPV4,
         "dns2": DNS_IPV6 if ENABLE_IPV6 else "",
-        "defaultContainer": "amnezia-awg",
-        "description": f"{VPN_ROLE} AmneziaWG",
+        "defaultContainer": "amnezia-wireguard",
+        "description": f"{VPN_ROLE} WireGuard",
         "hostName": VPN_PUBLIC_ENDPOINT,
         "containers": [
             {
-                "container": "amnezia-awg",
-                "awg": {
+                "container": "amnezia-wireguard",
+                "wireguard": {
                     "isThirdPartyConfig": True,
                     "last_config": json.dumps(last_config, separators=(",", ":")),
                     "port": str(AWG_PORT),
@@ -148,7 +156,10 @@ for index in range(1, CLIENT_COUNT + 1):
     )
     changed = write_if_changed(STATE_DIR / f"{client_id}.awg.conf", client_config) or changed
     all_configs.append(f"### {client_id} {VPN_ROLE} amneziawg_config\n{client_config}")
-    vpn_links.append(f"{client_id} {VPN_ROLE} amnezia_vpn {amnezia_vpn_link(client_config)}")
+    vpn_links.append(
+        f"{client_id} {VPN_ROLE} amnezia_vpn "
+        f"{amnezia_vpn_link(client_config, client_private, client_public, address, server_public, allowed_ips)}"
+    )
     client_index_lines.append(f"{client_id} {VPN_ROLE} amneziawg_config /var/lib/vpn/{client_id}.awg.conf")
 
 changed = write_if_changed(WG_CONFIG, "\n".join(server_lines), mode=0o600) or changed
