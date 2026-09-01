@@ -15,6 +15,7 @@ GRAFANA_BASIC_AUTH_PASSWORD="${VPN_GRAFANA_BASIC_AUTH_PASSWORD:-}"
 ALERTMANAGER_BASIC_AUTH_PASSWORD="${VPN_ALERTMANAGER_BASIC_AUTH_PASSWORD:-}"
 CHECK_ATTEMPTS="${VPN_CHECK_ATTEMPTS:-5}"
 CHECK_DELAY_SECONDS="${VPN_CHECK_DELAY_SECONDS:-10}"
+SSH_KEY_PATH="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
 
 ask_tty() {
   local prompt="$1"
@@ -241,6 +242,17 @@ write_inventory
 add_known_host "$SERVER_IP"
 if [ -n "$RESERVE_IP" ]; then
   add_known_host "$RESERVE_IP"
+  if [ -r /dev/tty ]; then
+    echo
+    echo "Один и тот же публичный Ansible SSH-ключ должен быть добавлен на main и reserve:"
+    echo "  $SSH_KEY_PATH.pub -> /root/.ssh/authorized_keys"
+    if [ -r "$SSH_KEY_PATH.pub" ]; then
+      echo
+      cat "$SSH_KEY_PATH.pub"
+      echo
+    fi
+    ask_tty "Убедитесь, что ключ добавлен на оба VPS, затем нажмите Enter..." >/dev/null
+  fi
 fi
 
 cat <<EOF
