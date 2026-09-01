@@ -19,6 +19,21 @@ ask_tty() {
   printf '%s' "$answer"
 }
 
+format_duration() {
+  local total_seconds="$1"
+  local hours=$((total_seconds / 3600))
+  local minutes=$(((total_seconds % 3600) / 60))
+  local seconds=$((total_seconds % 60))
+
+  if [ "$hours" -gt 0 ]; then
+    printf '%dч %02dм %02dс' "$hours" "$minutes" "$seconds"
+  elif [ "$minutes" -gt 0 ]; then
+    printf '%dм %02dс' "$minutes" "$seconds"
+  else
+    printf '%dс' "$seconds"
+  fi
+}
+
 if [[ "$ARG1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
   SERVER_IP="$ARG1"
   SERVER_ROLE="$ARG2"
@@ -100,6 +115,8 @@ cat <<EOF
 ===== КОНЕЦ ВВОДНЫХ =====
 EOF
 
+DEPLOY_STARTED_AT="$(date +%s)"
+
 echo
 echo "==> [1/3] Preflight"
 scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
@@ -113,6 +130,9 @@ echo "==> [3/3] Проверка результата"
 for attempt in $(seq 1 "$CHECK_ATTEMPTS"); do
   echo "Проверка $attempt/$CHECK_ATTEMPTS"
   if scripts/check-server "$SERVER_IP" "$SERVER_ROLE"; then
+    DEPLOY_FINISHED_AT="$(date +%s)"
+    DEPLOY_DURATION_SECONDS=$((DEPLOY_FINISHED_AT - DEPLOY_STARTED_AT))
+    DEPLOY_DURATION="$(format_duration "$DEPLOY_DURATION_SECONDS")"
     cat <<EOF
 
 ===== ИТОГ DEPLOY =====
@@ -123,6 +143,7 @@ for attempt in $(seq 1 "$CHECK_ATTEMPTS"); do
 
 Deploy завершён.
 Проверка результата успешна.
+Время развёртывания: $DEPLOY_DURATION
 
 Развернули:
   AmneziaWG/WireGuard-compatible: awg0, UDP/443

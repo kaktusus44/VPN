@@ -32,6 +32,21 @@ ask_tty() {
   printf '%s' "$answer"
 }
 
+format_duration() {
+  local total_seconds="$1"
+  local hours=$((total_seconds / 3600))
+  local minutes=$(((total_seconds % 3600) / 60))
+  local seconds=$((total_seconds % 60))
+
+  if [ "$hours" -gt 0 ]; then
+    printf '%dч %02dм %02dс' "$hours" "$minutes" "$seconds"
+  elif [ "$minutes" -gt 0 ]; then
+    printf '%dм %02dс' "$minutes" "$seconds"
+  else
+    printf '%dс' "$seconds"
+  fi
+}
+
 if [ -z "$CLIENT_COUNT" ]; then
   CLIENT_COUNT="$(ask_tty "Сколько Amnezia ключей генерить [100]: " || true)"
 fi
@@ -99,6 +114,8 @@ if [ "${VPN_RESET_CONFIRM:-}" != "DESTROY" ]; then
   fi
 fi
 
+DEPLOY_STARTED_AT="$(date +%s)"
+
 echo
 echo "==> [1/4] Preflight до reset"
 scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
@@ -115,6 +132,10 @@ echo
 echo "==> [4/4] Preflight после deploy"
 scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
 
+DEPLOY_FINISHED_AT="$(date +%s)"
+DEPLOY_DURATION_SECONDS=$((DEPLOY_FINISHED_AT - DEPLOY_STARTED_AT))
+DEPLOY_DURATION="$(format_duration "$DEPLOY_DURATION_SECONDS")"
+
 cat <<EOF
 
 ===== ИТОГ REDEPLOY =====
@@ -128,6 +149,7 @@ cat <<EOF
   reset управляемого VPN-стека: выполнен
   deploy playbooks/vpn-core.yml: выполнен
   preflight после deploy: выполнен
+  время развёртывания: $DEPLOY_DURATION
 
 Развернули:
   AmneziaWG/WireGuard-compatible: awg0, UDP/443
