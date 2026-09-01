@@ -66,6 +66,42 @@
     group: root
     mode: "0700"
 
+- name: Create Xray config directory
+  ansible.builtin.file:
+    path: /usr/local/etc/xray
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install managed Xray systemd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/xray.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Xray Service
+      Documentation=https://github.com/XTLS/Xray-core
+      After=network.target nss-lookup.target
+
+      [Service]
+      User=root
+      ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+      Restart=on-failure
+      RestartPreventExitStatus=23
+      LimitNPROC=infinity
+      LimitNOFILE=infinity
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: Restart xray
+
+- name: Reload systemd after installing managed Xray service
+  ansible.builtin.systemd:
+    daemon_reload: true
+
 - name: Generate Xray client UUID
   ansible.builtin.shell: "/usr/local/bin/xray uuid > /var/lib/vpn/client-001.xray.uuid"
   args:
