@@ -27,13 +27,14 @@ cd ~/VPN
 scripts/deploy-server
 ```
 
-Скрипт сам спросит роль (`main` или `reserve`) и IP сервера. Он сам создаёт
+Скрипт сам спросит роль (`main` или `reserve`), IP сервера и сколько Amnezia
+ключей генерить. Если количество не ввести, будет 100. Он сам создаёт
 внутренний Ansible inventory, запускает deploy и проверяет результат.
 
 Можно без вопросов:
 
 ```bash
-scripts/deploy-server main 1.2.3.4
+VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
 ```
 
 ### Удалить то, что развернули
@@ -59,7 +60,7 @@ Destroy удаляет управляемые VPN services/configs/packages и `
 
 ```bash
 cd ~/VPN
-VPN_RESET_CONFIRM=DESTROY scripts/redeploy-server 1.2.3.4 main
+VPN_RESET_CONFIRM=DESTROY VPN_CLIENT_COUNT=100 scripts/redeploy-server 1.2.3.4 main
 ```
 
 ## Что сделать при создании VPS

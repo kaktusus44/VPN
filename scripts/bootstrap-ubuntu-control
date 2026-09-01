@@ -115,10 +115,11 @@ SSH-ключи Ansible:
 
 Запуск развёртывания:
   cd "$INSTALL_DIR"
-  scripts/deploy-server main 1.2.3.4
+  VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
 
 Замените 1.2.3.4 на IP сервера.
 Роль укажите main или reserve.
+VPN_CLIENT_COUNT можно заменить на нужное количество Amnezia клиентов: 1-253.
 ===== КОНЕЦ ИТОГА =====
 EOF
 
