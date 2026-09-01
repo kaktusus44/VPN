@@ -32,7 +32,8 @@ scripts/deploy-server
 и пароль администратора Grafana. Если количество не ввести, будет 100. Он сам
 создаёт внутренний Ansible inventory, запускает VPN core, monitoring layer и
 проверяет результат. Grafana на `main` публикуется наружу через nginx HTTPS с
-Basic Auth; Prometheus и Alertmanager остаются на localhost.
+Basic Auth. Alertmanager на `main` публикуется наружу через nginx HTTPS с
+Basic Auth на порту `9443`. Prometheus остаётся на localhost.
 
 Можно без вопросов:
 
@@ -49,6 +50,7 @@ VPN_TELEGRAM_BOT_TOKEN='<bot-token>' \
 VPN_TELEGRAM_CHAT_ID='-1001234567890' \
 VPN_GRAFANA_ADMIN_PASSWORD='<strong-password>' \
 VPN_GRAFANA_BASIC_AUTH_PASSWORD='<strong-password>' \
+VPN_ALERTMANAGER_BASIC_AUTH_PASSWORD='<strong-password>' \
 scripts/deploy-server main 1.2.3.4
 ```
 

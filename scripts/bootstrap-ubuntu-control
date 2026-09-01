@@ -113,13 +113,16 @@ SSH-ключи Ansible:
 Куда должен попасть публичный ключ на VPS:
   /root/.ssh/authorized_keys
 
-Запуск развёртывания:
+Ручной повторный запуск развёртывания:
   cd "$INSTALL_DIR"
   VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
 
 Замените 1.2.3.4 на IP сервера.
 Роль укажите main или reserve.
 VPN_CLIENT_COUNT можно заменить на нужное количество Amnezia клиентов: 1-253.
+
+При интерактивном первом запуске bootstrap ниже сам спросит роль/IP и вызовет
+scripts/deploy-server после того, как публичный SSH-ключ будет добавлен на VPS.
 ===== КОНЕЦ ИТОГА =====
 EOF
 
