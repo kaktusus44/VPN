@@ -5,7 +5,9 @@
       - software-properties-common
       - ca-certificates
       - gnupg
+      - gnupg2
       - iptables
+      - python3-launchpadlib
     state: present
     update_cache: true
 
@@ -19,7 +21,18 @@
   ansible.builtin.apt_repository:
     repo: ppa:amnezia/ppa
     state: present
+    update_cache: false
+  register: amneziawg_ppa
+  until: amneziawg_ppa is succeeded
+  retries: 5
+  delay: 20
+
+- name: Refresh apt cache after adding AmneziaWG PPA
+  ansible.builtin.apt:
     update_cache: true
+    cache_valid_time: 0
+    update_cache_retries: 5
+    update_cache_retry_max_delay: 20
 
 - name: Install native AmneziaWG packages
   ansible.builtin.apt:
