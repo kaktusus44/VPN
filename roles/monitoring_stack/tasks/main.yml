@@ -11,6 +11,9 @@
       - wget
       - prometheus
       - prometheus-alertmanager
+      - adduser
+      - libfontconfig1
+      - musl
     state: present
     update_cache: true
 
@@ -18,24 +21,44 @@
   ansible.builtin.stat:
     path: /etc/apt/trusted.gpg.d/grafana.asc
   register: grafana_trusted_key
+  when: monitoring_grafana_deb_path | length == 0
 
 - name: Add Grafana apt key when missing
   ansible.builtin.apt_key:
     url: https://apt.grafana.com/gpg.key
     state: present
-  when: not grafana_trusted_key.stat.exists
+  when:
+    - monitoring_grafana_deb_path | length == 0
+    - not grafana_trusted_key.stat.exists
 
 - name: Add Grafana apt repository
   ansible.builtin.apt_repository:
     repo: deb https://apt.grafana.com stable main
     state: present
     filename: grafana
+  when: monitoring_grafana_deb_path | length == 0
 
 - name: Install Grafana
   ansible.builtin.apt:
     name: grafana
     state: present
     update_cache: true
+  when: monitoring_grafana_deb_path | length == 0
+
+- name: Copy Grafana deb package from control machine
+  ansible.builtin.copy:
+    src: "{{ monitoring_grafana_deb_path }}"
+    dest: /tmp/grafana.deb
+    owner: root
+    group: root
+    mode: "0644"
+  when: monitoring_grafana_deb_path | length > 0
+
+- name: Install Grafana from deb package
+  ansible.builtin.apt:
+    deb: /tmp/grafana.deb
+    state: present
+  when: monitoring_grafana_deb_path | length > 0
 
 - name: Create Prometheus rules directory
   ansible.builtin.file:

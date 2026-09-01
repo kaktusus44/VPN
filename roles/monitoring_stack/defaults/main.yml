@@ -18,6 +18,7 @@ monitoring_grafana_basic_auth_user: admin
 monitoring_grafana_basic_auth_password: "{{ monitoring_grafana_admin_password }}"
 monitoring_grafana_htpasswd_path: /etc/nginx/.grafana.htpasswd
 monitoring_grafana_tls_dir: /etc/grafana/tls
+monitoring_grafana_deb_path: ""
 monitoring_alertmanager_telegram_enabled: false
 monitoring_alertmanager_telegram_bot_token: ""
 monitoring_alertmanager_telegram_chat_id: ""

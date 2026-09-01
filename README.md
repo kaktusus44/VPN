@@ -59,6 +59,15 @@ VPN_RESERVE_IP='5.6.7.8' \
 scripts/deploy-server main 1.2.3.4
 ```
 
+Если VPS не может читать `https://apt.grafana.com` напрямую, скачайте Grafana
+`.deb` на управляющей машине и передайте путь через `VPN_GRAFANA_DEB_PATH`:
+
+```bash
+curl -fsSL -o /tmp/grafana.deb \
+  https://dl.grafana.com/grafana/release/13.2.1/grafana_13.2.1_33191028959_linux_amd64.deb
+VPN_GRAFANA_DEB_PATH=/tmp/grafana.deb scripts/deploy-server main 1.2.3.4
+```
+
 ### Удалить то, что развернули
 
 ```bash
