@@ -56,7 +56,7 @@ def qcompress(raw):
     return len(raw).to_bytes(4, "big") + zlib.compress(raw)
 
 
-def amnezia_vpn_link(config, client_private, client_public, address, server_public, allowed_ips):
+def amnezia_vpn_link(config, client_private, client_public, address, server_public, allowed_ips, obfuscation):
     last_config = {
         "config": config,
         "hostName": VPN_PUBLIC_ENDPOINT,
@@ -70,6 +70,7 @@ def amnezia_vpn_link(config, client_private, client_public, address, server_publ
         "persistent_keep_alive": "25",
         "mtu": str(AWG_MTU),
     }
+    last_config.update(obfuscation)
     payload = {
         "dns1": DNS_IPV4,
         "dns2": DNS_IPV6 if ENABLE_IPV6 else "",
@@ -302,7 +303,7 @@ for index in range(1, CLIENT_COUNT + 1):
     all_configs.append(f"### {client_id} {VPN_ROLE} amneziawg_config\n{client_config}")
     vpn_links.append(
         f"{client_id} {VPN_ROLE} amnezia_vpn "
-        f"{amnezia_vpn_link(client_config, client_private, client_public, address, server_public, allowed_ips)}"
+        f"{amnezia_vpn_link(client_config, client_private, client_public, address, server_public, allowed_ips, obfuscation)}"
     )
     client_index_lines.append(f"{client_id} {VPN_ROLE} amneziawg_config /var/lib/vpn/{client_id}.awg.conf")
 
