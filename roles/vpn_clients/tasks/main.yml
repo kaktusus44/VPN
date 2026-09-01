@@ -14,7 +14,7 @@
   no_log: true
 
 - name: Derive server public key
-  ansible.builtin.command: "wg pubkey"
+  ansible.builtin.command: "awg pubkey"
   args:
     stdin: "{{ vpn_server_private_key_raw.content | b64decode }}"
   register: vpn_server_public_key
@@ -77,5 +77,5 @@
       - "Client export created: {{ export_client_links_path }}"
       - "AmneziaWG client config bundle created: {{ export_amneziawg_configs_path }}"
       - "AmneziaVPN vpn:// links created: {{ export_amnezia_vpn_links_path }}"
-      - "WireGuard-compatible configs created: /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/client-{{ '%03d' | format(vpn_client_count | int) }}.awg.conf"
+      - "Native AmneziaWG configs created: /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/client-{{ '%03d' | format(vpn_client_count | int) }}.awg.conf"
       - "Use root SSH to read the export file; secrets are not printed in Ansible output."

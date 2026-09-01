@@ -1,5 +1,5 @@
 ---
 - name: Restart awg interface
   ansible.builtin.systemd:
-    name: "wg-quick@{{ awg_interface }}"
+    name: "awg-quick@{{ awg_interface }}"
     state: restarted

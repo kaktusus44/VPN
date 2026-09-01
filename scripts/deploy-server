@@ -231,7 +231,7 @@ Deploy завершён.
 Проверка результата успешна.
 
 Развернули:
-  AmneziaWG/WireGuard-compatible: awg0, UDP/443
+  Native AmneziaWG: awg0 via awg-quick, UDP/443
   DNS для VPN-клиентов: Unbound на 10.8.0.1 и fd00:8::1
   Резервный канал: Xray VLESS Reality, TCP/8443 xhttp и TCP/8444 tcp
   Firewall/UFW + fail2ban

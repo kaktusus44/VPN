@@ -58,6 +58,9 @@
       - fail2ban
       - ufw
       - unbound
+      - amneziawg
+      - amneziawg-tools
+      - amneziawg-dkms
       - wireguard-tools
       - python3-prometheus-client
       - prometheus-node-exporter

@@ -2,13 +2,15 @@
 import base64
 import json
 from pathlib import Path
+import secrets
 import subprocess
 import zlib
 
 
 STATE_DIR = Path("/var/lib/vpn")
-WG_CONFIG = Path("/etc/wireguard/{{ awg_interface }}.conf")
+AWG_CONFIG = Path("{{ awg_config_dir }}/{{ awg_interface }}.conf")
 SERVER_KEY = STATE_DIR / "{{ awg_interface }}.server.key"
+PARAMS_FILE = STATE_DIR / "{{ awg_interface }}.obfuscation.json"
 CLIENT_COUNT = {{ vpn_client_count | int }}
 VPN_ROLE = "{{ vpn_server_role }}"
 AWG_PORT = {{ awg_port | int }}
@@ -22,6 +24,9 @@ DNS_IPV6 = "{{ unbound_ipv6_listen }}"
 AMNEZIA_VPN_LINKS = Path("{{ export_amnezia_vpn_links_path }}")
 AMNEZIAWG_CONFIGS = Path("{{ export_amneziawg_configs_path }}")
 CLIENT_LINKS = Path("{{ export_client_links_path }}")
+ENABLE_HEADER_PROTECTION = {{ 'True' if awg_enable_header_protection | bool else 'False' }}
+ENABLE_CONTENT_PADDING = {{ 'True' if awg_enable_content_padding | bool else 'False' }}
+ENABLE_TIMING_OBFUSCATION = {{ 'True' if awg_enable_timing_obfuscation | bool else 'False' }}
 
 
 def run(args, stdin=None):
@@ -87,17 +92,143 @@ def amnezia_vpn_link(config, client_private, client_public, address, server_publ
     return "vpn://" + base64.urlsafe_b64encode(qcompress(raw)).decode().rstrip("=")
 
 
+def randint(low, high):
+    return low + secrets.randbelow(high - low + 1)
+
+
+def generate_h_ranges():
+    for _ in range(100):
+        points = sorted(randint(100000, 2_147_000_000) for _ in range(8))
+        ranges = [f"{points[i]}-{points[i + 1]}" for i in range(0, 8, 2)]
+        if len(set(ranges)) == 4:
+            return ranges
+    return [
+        "234567-345678",
+        "3456789-4567890",
+        "56789012-67890123",
+        "456789012-567890123",
+    ]
+
+
+def generate_obfuscation_params():
+    jmin = randint(40, 89)
+    s1 = randint(15, 150)
+    s2 = randint(15, 150)
+    while s1 + 56 == s2:
+        s2 = randint(15, 150)
+    h1, h2, h3, h4 = generate_h_ranges()
+
+    params = {
+        "Jc": str(randint(3, 6)),
+        "Jmin": str(jmin),
+        "Jmax": str(randint(jmin + 50, min(jmin + 250, 1280))),
+        "S1": str(s1),
+        "S2": str(s2),
+        "S3": str(randint(12, 55)),
+        "S4": str(randint(12, 27)),
+        "H1": h1,
+        "H2": h2,
+        "H3": h3,
+        "H4": h4,
+        "I1": "<r 128>",
+    }
+    if ENABLE_HEADER_PROTECTION:
+        params["HeaderProtectionKey"] = run(["awg", "genkey"])
+    if ENABLE_CONTENT_PADDING:
+        params["ContentPaddingAddition"] = "0-32"
+    if ENABLE_TIMING_OBFUSCATION:
+        params.update(
+            {
+                "RekeyAfterTime": "110-130",
+                "RekeyTimeout": "5-7",
+                "RejectAfterTime": "170-190",
+                "KeepaliveTimeout": "20-30",
+                "MaxHandshakeAttempts": "5-8",
+            }
+        )
+    return params
+
+
+def load_obfuscation_params():
+    params_changed = False
+    if PARAMS_FILE.exists():
+        params = json.loads(PARAMS_FILE.read_text())
+    else:
+        params = generate_obfuscation_params()
+        params_changed = True
+    if ENABLE_HEADER_PROTECTION and not params.get("HeaderProtectionKey"):
+        params["HeaderProtectionKey"] = run(["awg", "genkey"])
+        params_changed = True
+    if ENABLE_CONTENT_PADDING and not params.get("ContentPaddingAddition"):
+        params["ContentPaddingAddition"] = "0-32"
+        params_changed = True
+    if ENABLE_TIMING_OBFUSCATION:
+        for key, value in {
+            "RekeyAfterTime": "110-130",
+            "RekeyTimeout": "5-7",
+            "RejectAfterTime": "170-190",
+            "KeepaliveTimeout": "20-30",
+            "MaxHandshakeAttempts": "5-8",
+        }.items():
+            if not params.get(key):
+                params[key] = value
+                params_changed = True
+    if ENABLE_HEADER_PROTECTION:
+        for key in ("S1", "S2", "S3", "S4"):
+            lower_bound = str(params.get(key, "0")).split("-", 1)[0]
+            if int(lower_bound) < 12:
+                params[key] = "12"
+                params_changed = True
+    if params_changed:
+        PARAMS_FILE.write_text(json.dumps(params, indent=2, sort_keys=True) + "\n")
+        PARAMS_FILE.chmod(0o600)
+    PARAMS_FILE.chmod(0o600)
+    return params, params_changed
+
+
+def obfuscation_lines(params):
+    ordered_keys = [
+        "Jc",
+        "Jmin",
+        "Jmax",
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "I1",
+        "I2",
+        "I3",
+        "I4",
+        "I5",
+        "HeaderProtectionKey",
+        "ContentPaddingAddition",
+        "RekeyAfterTime",
+        "RekeyTimeout",
+        "RejectAfterTime",
+        "KeepaliveTimeout",
+        "MaxHandshakeAttempts",
+    ]
+    return [f"{key} = {params[key]}" for key in ordered_keys if params.get(key)]
+
+
 changed = False
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 server_private = SERVER_KEY.read_text().strip()
-server_public = run(["wg", "pubkey"], stdin=server_private)
+server_public = run(["awg", "pubkey"], stdin=server_private)
+obfuscation, params_changed = load_obfuscation_params()
+changed = changed or params_changed
 
 server_lines = [
     "[Interface]",
     "Address = {{ awg_ipv4_address }}{{ ', ' ~ awg_ipv6_address if vpn_enable_ipv6 | bool else '' }}",
     "ListenPort = {{ awg_port }}",
     f"PrivateKey = {server_private}",
+    *obfuscation_lines(obfuscation),
     "PostUp = iptables -t nat -A POSTROUTING -s {{ awg_ipv4_network }} -o " + EXT_IFACE + " -j MASQUERADE",
     "PostDown = iptables -t nat -D POSTROUTING -s {{ awg_ipv4_network }} -o " + EXT_IFACE + " -j MASQUERADE",
     "",
@@ -114,14 +245,14 @@ for index in range(1, CLIENT_COUNT + 1):
     client_id = f"client-{index:03d}"
     client_key_path = STATE_DIR / f"{client_id}.key"
     if not client_key_path.exists():
-        client_key_path.write_text(run(["wg", "genkey"]) + "\n")
+        client_key_path.write_text(run(["awg", "genkey"]) + "\n")
         client_key_path.chmod(0o600)
         changed = True
     else:
         client_key_path.chmod(0o600)
 
     client_private = client_key_path.read_text().strip()
-    client_public = run(["wg", "pubkey"], stdin=client_private)
+    client_public = run(["awg", "pubkey"], stdin=client_private)
     ipv4 = f"10.8.0.{index + 1}/32"
     ipv6 = f"fd00:8::{index + 1}/128"
     address = ipv4 + (f", {ipv6}" if ENABLE_IPV6 else "")
@@ -145,6 +276,8 @@ for index in range(1, CLIENT_COUNT + 1):
             f"Address = {address}",
             f"MTU = {AWG_MTU}",
             f"DNS = {dns}",
+            "MTU = 1280",
+            *obfuscation_lines(obfuscation),
             "",
             "[Peer]",
             f"PublicKey = {server_public}",
@@ -162,7 +295,7 @@ for index in range(1, CLIENT_COUNT + 1):
     )
     client_index_lines.append(f"{client_id} {VPN_ROLE} amneziawg_config /var/lib/vpn/{client_id}.awg.conf")
 
-changed = write_if_changed(WG_CONFIG, "\n".join(server_lines), mode=0o600) or changed
+changed = write_if_changed(AWG_CONFIG, "\n".join(server_lines), mode=0o600) or changed
 changed = write_if_changed(AMNEZIAWG_CONFIGS, "\n".join(all_configs) + "\n", mode=0o600) or changed
 changed = write_if_changed(AMNEZIA_VPN_LINKS, "\n".join(vpn_links) + "\n", mode=0o600) or changed
 xray_block = ""

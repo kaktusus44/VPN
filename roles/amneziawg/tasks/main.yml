@@ -1,22 +1,47 @@
 ---
-- name: Install WireGuard-compatible packages
+- name: Install AmneziaWG repository prerequisites
   ansible.builtin.apt:
     name:
-      - wireguard-tools
+      - software-properties-common
+      - ca-certificates
+      - gnupg
       - iptables
     state: present
     update_cache: true
 
-- name: Install WireGuard kernel modules package when available
+- name: Install kernel headers for AmneziaWG DKMS when available
   ansible.builtin.apt:
-    name: "linux-modules-extra-{{ ansible_kernel }}"
+    name: "linux-headers-{{ ansible_kernel }}"
     state: present
   failed_when: false
 
-- name: Load WireGuard kernel module
-  ansible.builtin.command: modprobe wireguard
+- name: Add AmneziaWG PPA
+  ansible.builtin.apt_repository:
+    repo: ppa:amnezia/ppa
+    state: present
+    update_cache: true
+
+- name: Install native AmneziaWG packages
+  ansible.builtin.apt:
+    name:
+      - amneziawg
+      - amneziawg-tools
+      - iptables
+    state: present
+    update_cache: true
+
+- name: Load AmneziaWG kernel module
+  ansible.builtin.command: modprobe amneziawg
   changed_when: false
-  failed_when: false
+
+- name: Load AmneziaWG kernel module on boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/amneziawg.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      amneziawg
 
 - name: Create VPN state directory
   ansible.builtin.file:
@@ -26,9 +51,9 @@
     group: root
     mode: "0700"
 
-- name: Create WireGuard config directory
+- name: Create AmneziaWG config directory
   ansible.builtin.file:
-    path: /etc/wireguard
+    path: "{{ awg_config_dir }}"
     state: directory
     owner: root
     group: root
@@ -42,7 +67,7 @@
     fail_msg: "vpn_client_count must be between 1 and 253 for the default 10.8.0.0/24 address plan."
 
 - name: Generate server private key
-  ansible.builtin.shell: "wg genkey > /var/lib/vpn/{{ awg_interface }}.server.key"
+  ansible.builtin.shell: "awg genkey > /var/lib/vpn/{{ awg_interface }}.server.key"
   args:
     creates: "/var/lib/vpn/{{ awg_interface }}.server.key"
 
@@ -60,7 +85,7 @@
   no_log: true
 
 - name: Derive server public key
-  ansible.builtin.command: "wg pubkey"
+  ansible.builtin.command: "awg pubkey"
   args:
     stdin: "{{ awg_server_private_key_raw.content | b64decode }}"
   register: awg_server_public_key
@@ -81,39 +106,51 @@
   changed_when: "'changed=true' in amnezia_client_generation.stdout"
   notify: Restart awg interface
 
+- name: Disable legacy wg-quick service for awg0
+  ansible.builtin.systemd:
+    name: "wg-quick@{{ awg_interface }}"
+    enabled: false
+    state: stopped
+  failed_when: false
+
+- name: Remove legacy WireGuard awg0 config
+  ansible.builtin.file:
+    path: "/etc/wireguard/{{ awg_interface }}.conf"
+    state: absent
+
 - name: Enable server interface
   block:
-    - name: Start wg-quick interface
+    - name: Start awg-quick interface
       ansible.builtin.systemd:
-        name: "wg-quick@{{ awg_interface }}"
+        name: "awg-quick@{{ awg_interface }}"
         enabled: true
         state: started
   rescue:
-    - name: Collect wg-quick service status
-      ansible.builtin.command: "systemctl status --no-pager -l wg-quick@{{ awg_interface }}"
+    - name: Collect awg-quick service status
+      ansible.builtin.command: "systemctl status --no-pager -l awg-quick@{{ awg_interface }}"
       register: awg_service_status
       changed_when: false
       failed_when: false
 
-    - name: Collect wg-quick journal
-      ansible.builtin.command: "journalctl -u wg-quick@{{ awg_interface }} -n 80 --no-pager"
+    - name: Collect awg-quick journal
+      ansible.builtin.command: "journalctl -u awg-quick@{{ awg_interface }} -n 80 --no-pager"
       register: awg_service_journal
       changed_when: false
       failed_when: false
 
-    - name: Collect sanitized WireGuard config
-      ansible.builtin.shell: "sed -E 's/^(PrivateKey = ).*/\\1<hidden>/' /etc/wireguard/{{ awg_interface }}.conf"
+    - name: Collect sanitized AmneziaWG config
+      ansible.builtin.shell: "sed -E 's/^(PrivateKey|HeaderProtectionKey) = .*/\\1 = <hidden>/' {{ awg_config_dir }}/{{ awg_interface }}.conf"
       register: awg_sanitized_config
       changed_when: false
       failed_when: false
 
-    - name: Show wg-quick startup diagnostics
+    - name: Show awg-quick startup diagnostics
       ansible.builtin.debug:
         msg:
           service_status: "{{ awg_service_status.stdout_lines }}"
           service_journal: "{{ awg_service_journal.stdout_lines }}"
           sanitized_config: "{{ awg_sanitized_config.stdout_lines }}"
 
-    - name: Fail after wg-quick diagnostics
+    - name: Fail after awg-quick diagnostics
       ansible.builtin.fail:
-        msg: "wg-quick@{{ awg_interface }} failed to start; diagnostics printed above."
+        msg: "awg-quick@{{ awg_interface }} failed to start; diagnostics printed above."
