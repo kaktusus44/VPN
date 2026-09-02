@@ -36,8 +36,9 @@ Prometheus на `main` будет скрейпить обе ноды. Для `ma
 не ввести, будет 100. Он сам создаёт Ansible inventory, запускает VPN core,
 monitoring layer и проверяет результат. Grafana на `main` публикуется наружу
 через nginx HTTPS с Basic Auth. Alertmanager на `main` публикуется наружу через
-nginx HTTPS с Basic Auth на порту `9443`. Prometheus остаётся на localhost. В
-итоговом выводе скрипт показывает, сколько заняло развёртывание.
+nginx HTTPS с Basic Auth на порту `9443`. Prometheus на `main` публикуется
+наружу через nginx HTTPS с Basic Auth на порту `9445`. В итоговом выводе скрипт
+показывает, сколько заняло развёртывание.
 
 Можно без вопросов:
 
@@ -97,7 +98,38 @@ VPN_RESET_CONFIRM=DESTROY VPN_CLIENT_COUNT=100 scripts/redeploy-server 1.2.3.4 m
 В итоговом выводе `redeploy-server` тоже показывает общее время выполнения
 после ввода всех параметров и подтверждения `DESTROY`.
 
-### Добавить reserve позже
+### Развернуть reserve отдельно
+
+Если `main` уже поднят, новый reserve VPS можно развернуть отдельной командой.
+Сначала добавьте тот же публичный Ansible SSH-ключ `~/.ssh/vpn_ansible.pub` в
+`/root/.ssh/authorized_keys` на reserve VPS.
+
+Затем на управляющей Ubuntu:
+
+```bash
+cd ~/VPN
+git pull
+VPN_CLIENT_COUNT=100 scripts/deploy-server reserve 5.6.7.8
+```
+
+Замените `5.6.7.8` на IP reserve. Этот запуск поставит на reserve VPN services,
+node exporter и vpn-custom-exporter. Monitoring stack, Grafana, Alertmanager и
+Prometheus ставятся только на `main`.
+
+Важно: после такого отдельного deploy метрики reserve ещё не появятся в
+Prometheus на `main`. Prometheus читает список целей из Ansible inventory,
+который рендерится при deploy monitoring layer на `main`. Поэтому после
+успешного deploy reserve нужно обновить `main`, передав IP reserve:
+
+```bash
+VPN_RESERVE_IP=5.6.7.8 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
+```
+
+Замените `1.2.3.4` на IP main. Скрипт обновит `inventories/managed/hosts.yml`,
+идемпотентно применит роли и перерендерит Prometheus на `main`, чтобы он начал
+скрейпить обе ноды.
+
+### Добавить reserve при повторном deploy main
 
 Если `main` уже развёрнут, reserve можно добавить позднее. Сначала добавьте тот
 же публичный Ansible SSH-ключ `~/.ssh/vpn_ansible.pub` в
@@ -116,6 +148,10 @@ VPN_RESERVE_IP=5.6.7.8 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
 поставит exporters на reserve и перерендерит Prometheus на main так, чтобы он
 скрейпил оба сервера. На reserve UFW откроет exporter-порты `9100` и `9187`
 только для IP main.
+
+После обновления `main` метрики второго сервера появятся в Prometheus targets:
+`node` для `:9100` и `vpn-custom-exporter` для `:9187`, с labels `role="reserve"`
+и `server="vpn-reserve"`.
 
 Проверить, что Prometheus подтянул reserve:
 
