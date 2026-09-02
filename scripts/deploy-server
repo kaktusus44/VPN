@@ -5,6 +5,7 @@ ARG1="${1:-}"
 ARG2="${2:-}"
 SERVER_ROLE=""
 SERVER_IP=""
+MAIN_IP="${VPN_MAIN_IP:-}"
 RESERVE_IP="${VPN_RESERVE_IP:-}"
 CLIENT_COUNT="${VPN_CLIENT_COUNT:-}"
 TELEGRAM_ALERTS="${VPN_TELEGRAM_ALERTS:-}"
@@ -80,6 +81,24 @@ all:
   children:
     vpn_servers:
       hosts:
+EOF
+    if [ "$SERVER_ROLE" = "reserve" ] && [ -n "$MAIN_IP" ]; then
+      cat <<EOF
+        vpn-main:
+          ansible_host: $MAIN_IP
+          ansible_user: root
+          ansible_port: 22
+          vpn_server_role: main
+          vpn_public_endpoint: $MAIN_IP
+        vpn-reserve:
+          ansible_host: $SERVER_IP
+          ansible_user: root
+          ansible_port: 22
+          vpn_server_role: reserve
+          vpn_public_endpoint: $SERVER_IP
+EOF
+    else
+      cat <<EOF
         vpn-${SERVER_ROLE}:
           ansible_host: $SERVER_IP
           ansible_user: root
@@ -87,6 +106,7 @@ all:
           vpn_server_role: $SERVER_ROLE
           vpn_public_endpoint: $SERVER_IP
 EOF
+    fi
     if [ "$SERVER_ROLE" = "main" ] && [ -n "$RESERVE_IP" ]; then
       cat <<EOF
         vpn-reserve:
@@ -170,6 +190,24 @@ if [ -z "$SERVER_IP" ]; then
 fi
 
 validate_ipv4 "$SERVER_IP"
+
+if [ "$SERVER_ROLE" = "reserve" ] && [ -z "$MAIN_IP" ]; then
+  MAIN_IP="$(ask_tty "IP main сервера для подключения monitoring: " || true)"
+fi
+
+if [ "$SERVER_ROLE" = "reserve" ] && [ -z "$MAIN_IP" ]; then
+  echo "Для reserve deploy нужен IP main сервера, чтобы подключить monitoring." >&2
+  echo "Использование: VPN_MAIN_IP=<main-ip> scripts/deploy-server reserve <reserve-ip>" >&2
+  exit 1
+fi
+
+if [ "$SERVER_ROLE" = "reserve" ]; then
+  validate_ipv4 "$MAIN_IP"
+  if [ "$MAIN_IP" = "$SERVER_IP" ]; then
+    echo "Main IP должен отличаться от IP reserve сервера." >&2
+    exit 1
+  fi
+fi
 
 if [ "$SERVER_ROLE" = "main" ] && [ -z "$RESERVE_IP" ]; then
   RESERVE_EXISTS="$(ask_tty "Reserve node уже есть и её надо добавить в monitoring? [y/N]: " || true)"
@@ -255,7 +293,11 @@ if [ "$SERVER_ROLE" = "main" ]; then
   ALERTMANAGER_ACCESS_SUMMARY="Alertmanager доступен извне по HTTPS + Basic Auth: https://$SERVER_IP:9443/ (self-signed TLS)"
   PROMETHEUS_ACCESS_SUMMARY="Prometheus доступен извне по HTTPS + Basic Auth: https://$SERVER_IP:9445/ (self-signed TLS)"
 else
-  MONITORING_STACK_SUMMARY="Monitoring stack: не ставился на reserve; ставится на main"
+  if [ -n "$MAIN_IP" ]; then
+    MONITORING_STACK_SUMMARY="Monitoring stack: exporters на reserve, Prometheus targets обновлены на main"
+  else
+    MONITORING_STACK_SUMMARY="Monitoring stack: не ставился на reserve; ставится на main"
+  fi
   GRAFANA_ACCESS_SUMMARY="Grafana живёт на main и доступна только из VPN"
   ALERTMANAGER_ACCESS_SUMMARY="Alertmanager живёт на main и доступен только там"
   PROMETHEUS_ACCESS_SUMMARY="Prometheus живёт на main и доступен только там"
@@ -292,6 +334,9 @@ fi
 
 write_inventory
 add_known_host "$SERVER_IP"
+if [ -n "$MAIN_IP" ]; then
+  add_known_host "$MAIN_IP"
+fi
 if [ -n "$RESERVE_IP" ]; then
   add_known_host "$RESERVE_IP"
   if [ -r /dev/tty ]; then
@@ -312,13 +357,14 @@ cat <<EOF
 Сервер:
   роль: $SERVER_ROLE
   IP: $SERVER_IP
+  main IP для monitoring: ${MAIN_IP:-не задан}
   reserve IP: ${RESERVE_IP:-не задан}
   Amnezia клиентов: $CLIENT_COUNT
   inventory: $INVENTORY_PATH
 
 Что произойдёт:
   1. SSH/Ansible preflight
-  2. deploy всего playbooks/vpn-core.yml
+  2. deploy playbooks/vpn-core.yml для выбранной роли
   3. deploy monitoring layer
   4. проверка результата с retry
 
@@ -336,8 +382,12 @@ echo "==> [1/4] Preflight"
 "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/preflight.yml
 
 echo
-echo "==> [2/4] Deploy full VPN core"
-"$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/vpn-core.yml -e "vpn_client_count=$CLIENT_COUNT"
+echo "==> [2/4] Deploy VPN core"
+VPN_CORE_LIMIT_ARGS=()
+if [ "$SERVER_ROLE" = "reserve" ]; then
+  VPN_CORE_LIMIT_ARGS=(--limit vpn-reserve)
+fi
+"$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/vpn-core.yml "${VPN_CORE_LIMIT_ARGS[@]}" -e "vpn_client_count=$CLIENT_COUNT"
 
 wait_for_ansible_hosts "После VPN core"
 
@@ -366,7 +416,11 @@ PY
   chmod 600 "$MONITORING_EXTRA_VARS_FILE"
   "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/monitoring.yml -e "@$MONITORING_EXTRA_VARS_FILE"
 else
-  "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/monitoring.yml
+  if [ -n "$MAIN_IP" ]; then
+    "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/connect-reserve-monitoring.yml
+  else
+    "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/monitoring.yml
+  fi
 fi
 
 echo
@@ -383,6 +437,7 @@ for attempt in $(seq 1 "$CHECK_ATTEMPTS"); do
 Сервер:
   роль: $SERVER_ROLE
   IP: $SERVER_IP
+  main IP для monitoring: ${MAIN_IP:-не задан}
   reserve IP: ${RESERVE_IP:-не задан}
   Amnezia клиентов: $CLIENT_COUNT
   inventory: $INVENTORY_PATH

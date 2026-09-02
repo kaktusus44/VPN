@@ -29,14 +29,13 @@ scripts/deploy-server
 
 Скрипт сам спросит роль (`main` или `reserve`), IP сервера и сколько Amnezia
 ключей генерить. Для `main` он также спросит, есть ли уже `reserve`-нода для
-централизованного мониторинга. Если `reserve` уже есть, её IP попадёт в
-`inventories/managed/hosts.yml`, на неё поставятся VPN services и exporters, а
-Prometheus на `main` будет скрейпить обе ноды. Для `main` скрипт также спросит,
-подключать ли Telegram alerts, и пароль администратора Grafana. Если количество
-не ввести, будет 100. Он сам создаёт Ansible inventory, запускает VPN core,
-monitoring layer и проверяет результат. Grafana на `main` публикуется наружу
-через nginx HTTPS с Basic Auth. Alertmanager на `main` публикуется наружу через
-nginx HTTPS с Basic Auth на порту `9443`. Prometheus на `main` публикуется
+централизованного мониторинга. Для `reserve` он спросит IP `main`, чтобы сразу
+подключить метрики reserve к Prometheus на `main`. Для `main` скрипт также
+спросит, подключать ли Telegram alerts, и пароль администратора Grafana. Если
+количество не ввести, будет 100. Он сам создаёт Ansible inventory, запускает VPN
+core, monitoring layer и проверяет результат. Grafana на `main` публикуется
+наружу через nginx HTTPS с Basic Auth. Alertmanager на `main` публикуется наружу
+через nginx HTTPS с Basic Auth на порту `9443`. Prometheus на `main` публикуется
 наружу через nginx HTTPS с Basic Auth на порту `9445`. В итоговом выводе скрипт
 показывает, сколько заняло развёртывание.
 
@@ -112,44 +111,16 @@ git pull
 VPN_CLIENT_COUNT=100 scripts/deploy-server reserve 5.6.7.8
 ```
 
-Замените `5.6.7.8` на IP reserve. Этот запуск поставит на reserve VPN services,
-node exporter и vpn-custom-exporter. Monitoring stack, Grafana, Alertmanager и
-Prometheus ставятся только на `main`.
-
-Важно: после такого отдельного deploy метрики reserve ещё не появятся в
-Prometheus на `main`. Prometheus читает список целей из Ansible inventory,
-который рендерится на `main`. Поэтому после успешного deploy reserve нужно
-подключить reserve к monitoring отдельным лёгким скриптом:
+Скрипт спросит IP `main` для monitoring. Можно передать его без вопроса:
 
 ```bash
-scripts/connect-reserve-monitoring 1.2.3.4 5.6.7.8
+VPN_MAIN_IP=1.2.3.4 VPN_CLIENT_COUNT=100 scripts/deploy-server reserve 5.6.7.8
 ```
 
-Замените `1.2.3.4` на IP main, а `5.6.7.8` на IP reserve. Скрипт обновит
-`inventories/managed/hosts.yml`, установит/обновит monitoring exporters на
-reserve и перерендерит Prometheus на `main`, чтобы он начал скрейпить обе ноды.
-VPN core, AmneziaWG/Xray config, клиентские ключи и `/var/lib/vpn` этот скрипт
-не трогает.
-
-### Добавить reserve при повторном deploy main
-
-Если `main` уже развёрнут, reserve можно добавить позднее. Сначала добавьте тот
-же публичный Ansible SSH-ключ `~/.ssh/vpn_ansible.pub` в
-`/root/.ssh/authorized_keys` на новом reserve VPS.
-
-Затем на управляющей Ubuntu выполните:
-
-```bash
-cd ~/VPN
-git pull
-scripts/connect-reserve-monitoring 1.2.3.4 5.6.7.8
-```
-
-Замените `1.2.3.4` на IP `main`, а `5.6.7.8` на IP `reserve`. Скрипт обновит
-`inventories/managed/hosts.yml`, поставит exporters на reserve и перерендерит
-Prometheus на main так, чтобы он скрейпил оба сервера. На reserve UFW откроет
-exporter-порты `9100` и `9187` только для IP main. VPN core и клиентские ключи
-не изменяются.
+Замените `1.2.3.4` на IP main, а `5.6.7.8` на IP reserve. Этот запуск поставит
+VPN services и exporters на reserve, откроет exporter-порты `9100` и `9187`
+только для IP main, затем перерендерит Prometheus на `main`, чтобы он начал
+скрейпить обе ноды. VPN core и клиентские ключи на `main` не изменяются.
 
 После обновления `main` метрики второго сервера появятся в Prometheus targets:
 `node` для `:9100` и `vpn-custom-exporter` для `:9187`, с labels `role="reserve"`
@@ -241,7 +212,6 @@ scripts/
   compare-server-configs
   rotate-endpoint
   deploy-server
-  connect-reserve-monitoring
   destroy-server
   redeploy-server
 docs/
