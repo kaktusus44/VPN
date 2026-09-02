@@ -8,6 +8,7 @@
       - openssl
     state: present
     update_cache: true
+    lock_timeout: 1200
 
 - name: Check existing Xray service command
   ansible.builtin.command: systemctl show xray -p ExecStart --value

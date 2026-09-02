@@ -253,10 +253,12 @@ if [ "$SERVER_ROLE" = "main" ]; then
   MONITORING_STACK_SUMMARY="Monitoring stack: Prometheus + Alertmanager + Grafana"
   GRAFANA_ACCESS_SUMMARY="Grafana доступна извне по HTTPS + Basic Auth: https://$SERVER_IP/ (self-signed TLS)"
   ALERTMANAGER_ACCESS_SUMMARY="Alertmanager доступен извне по HTTPS + Basic Auth: https://$SERVER_IP:9443/ (self-signed TLS)"
+  PROMETHEUS_ACCESS_SUMMARY="Prometheus доступен извне по HTTPS + Basic Auth: https://$SERVER_IP:9445/ (self-signed TLS)"
 else
   MONITORING_STACK_SUMMARY="Monitoring stack: не ставился на reserve; ставится на main"
   GRAFANA_ACCESS_SUMMARY="Grafana живёт на main и доступна только из VPN"
   ALERTMANAGER_ACCESS_SUMMARY="Alertmanager живёт на main и доступен только там"
+  PROMETHEUS_ACCESS_SUMMARY="Prometheus живёт на main и доступен только там"
 fi
 
 cd "$(dirname "$0")/.."
@@ -265,13 +267,22 @@ INVENTORY_PATH="$PWD/inventories/managed/hosts.yml"
 ANSIBLE_BIN="$PWD/.venv/bin/ansible"
 ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
 MONITORING_EXTRA_VARS_FILE=""
+DEPLOY_STARTED_AT=0
 
 cleanup() {
   if [ -n "$MONITORING_EXTRA_VARS_FILE" ]; then
     rm -f "$MONITORING_EXTRA_VARS_FILE"
   fi
 }
-trap cleanup EXIT
+
+on_exit() {
+  local rc=$?
+  cleanup
+  if [ "$rc" -ne 0 ] && [ "$DEPLOY_STARTED_AT" -gt 0 ]; then
+    echo "Deploy завершился с ошибкой за $(format_duration "$(( $(date +%s) - DEPLOY_STARTED_AT ))")." >&2
+  fi
+}
+trap on_exit EXIT
 
 if [ ! -x "$ANSIBLE_BIN" ] || [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
   echo "Совместимая версия Ansible не установлена." >&2
@@ -398,7 +409,7 @@ Deploy завершён.
 Следующий этап:
   $GRAFANA_ACCESS_SUMMARY
   $ALERTMANAGER_ACCESS_SUMMARY
-  Prometheus слушает localhost и не открыт наружу
+  $PROMETHEUS_ACCESS_SUMMARY
 ===== КОНЕЦ ИТОГА =====
 EOF
     exit 0

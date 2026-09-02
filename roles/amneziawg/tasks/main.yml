@@ -10,11 +10,13 @@
       - iptables
     state: present
     update_cache: true
+    lock_timeout: 1200
 
 - name: Install kernel headers for AmneziaWG DKMS when available
   ansible.builtin.apt:
     name: "linux-headers-{{ ansible_kernel }}"
     state: present
+    lock_timeout: 1200
   failed_when: false
 
 - name: Create APT keyring directory
@@ -64,6 +66,7 @@
     cache_valid_time: 0
     update_cache_retries: 5
     update_cache_retry_max_delay: 20
+    lock_timeout: 1200
 
 - name: Install native AmneziaWG packages
   ansible.builtin.apt:
@@ -73,6 +76,7 @@
       - iptables
     state: present
     update_cache: true
+    lock_timeout: 1200
 
 - name: Load AmneziaWG kernel module
   ansible.builtin.command: modprobe amneziawg

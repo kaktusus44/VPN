@@ -16,6 +16,7 @@
       - musl
     state: present
     update_cache: true
+    lock_timeout: 1200
 
 - name: Check manually installed Grafana apt key
   ansible.builtin.stat:
@@ -43,6 +44,7 @@
     name: grafana
     state: present
     update_cache: true
+    lock_timeout: 1200
   when: monitoring_grafana_deb_path | length == 0
 
 - name: Copy Grafana deb package from control machine
@@ -58,6 +60,7 @@
   ansible.builtin.apt:
     deb: /tmp/grafana.deb
     state: present
+    lock_timeout: 1200
   when: monitoring_grafana_deb_path | length > 0
 
 - name: Create Prometheus rules directory
@@ -108,8 +111,8 @@
     src: alertmanager.yml.j2
     dest: /etc/prometheus/alertmanager.yml
     owner: root
-    group: root
-    mode: "0600"
+    group: prometheus
+    mode: "0640"
   no_log: "{{ monitoring_alertmanager_telegram_enabled | bool }}"
   notify: Restart alertmanager
 
@@ -139,7 +142,10 @@
     owner: root
     group: root
     mode: "0750"
-  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)
+  when: >
+    (monitoring_grafana_external_enabled | bool)
+    or (monitoring_alertmanager_external_enabled | bool)
+    or (monitoring_prometheus_external_enabled | bool)
 
 - name: Generate self-signed Grafana TLS certificate
   ansible.builtin.command: >
@@ -149,7 +155,10 @@
     -subj /CN={{ monitoring_grafana_external_server_name }}
   args:
     creates: "{{ monitoring_grafana_tls_dir }}/grafana.crt"
-  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)
+  when: >
+    (monitoring_grafana_external_enabled | bool)
+    or (monitoring_alertmanager_external_enabled | bool)
+    or (monitoring_prometheus_external_enabled | bool)
   notify: Restart nginx
 
 - name: Secure Grafana TLS private key
@@ -158,7 +167,10 @@
     owner: root
     group: root
     mode: "0600"
-  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)
+  when: >
+    (monitoring_grafana_external_enabled | bool)
+    or (monitoring_alertmanager_external_enabled | bool)
+    or (monitoring_prometheus_external_enabled | bool)
 
 - name: Install Grafana Basic Auth password file
   ansible.builtin.command: >
@@ -214,11 +226,41 @@
   when: monitoring_alertmanager_external_enabled | bool
   notify: Restart nginx
 
+- name: Install Prometheus Basic Auth password file
+  ansible.builtin.command: >
+    htpasswd -bcB {{ monitoring_prometheus_htpasswd_path }}
+    {{ monitoring_prometheus_basic_auth_user }}
+    {{ monitoring_prometheus_basic_auth_password }}
+  no_log: true
+  when: monitoring_prometheus_external_enabled | bool
+  notify: Restart nginx
+
+- name: Configure Prometheus nginx reverse proxy
+  ansible.builtin.template:
+    src: nginx-prometheus.conf.j2
+    dest: /etc/nginx/sites-available/prometheus.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: monitoring_prometheus_external_enabled | bool
+  notify: Restart nginx
+
+- name: Enable Prometheus nginx reverse proxy
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/prometheus.conf
+    dest: /etc/nginx/sites-enabled/prometheus.conf
+    state: link
+  when: monitoring_prometheus_external_enabled | bool
+  notify: Restart nginx
+
 - name: Disable default nginx site
   ansible.builtin.file:
     path: /etc/nginx/sites-enabled/default
     state: absent
-  when: (monitoring_grafana_external_enabled | bool) or (monitoring_alertmanager_external_enabled | bool)
+  when: >
+    (monitoring_grafana_external_enabled | bool)
+    or (monitoring_alertmanager_external_enabled | bool)
+    or (monitoring_prometheus_external_enabled | bool)
   notify: Restart nginx
 
 - name: Allow external HTTPS for Grafana
@@ -234,6 +276,13 @@
     port: "{{ monitoring_alertmanager_external_port }}"
     proto: tcp
   when: monitoring_alertmanager_external_enabled | bool
+
+- name: Allow external HTTPS for Prometheus
+  community.general.ufw:
+    rule: allow
+    port: "{{ monitoring_prometheus_external_port }}"
+    proto: tcp
+  when: monitoring_prometheus_external_enabled | bool
 
 - name: Create Grafana datasource provisioning directory
   ansible.builtin.file:

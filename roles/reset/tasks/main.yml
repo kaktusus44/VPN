@@ -49,8 +49,11 @@
     - /etc/nginx/sites-enabled/grafana.conf
     - /etc/nginx/sites-available/alertmanager.conf
     - /etc/nginx/sites-enabled/alertmanager.conf
+    - /etc/nginx/sites-available/prometheus.conf
+    - /etc/nginx/sites-enabled/prometheus.conf
     - /etc/nginx/.grafana.htpasswd
     - /etc/nginx/.alertmanager.htpasswd
+    - /etc/nginx/.prometheus.htpasswd
     - /var/lib/vpn
     - /var/lib/vpn-custom-exporter
     - /var/lib/vpn-asn
@@ -77,6 +80,7 @@
     state: absent
     purge: true
     autoremove: true
+    lock_timeout: 1200
   failed_when: false
 
 - name: Reset IPv4 forwarding
