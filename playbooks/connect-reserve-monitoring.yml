@@ -1,0 +1,43 @@
+---
+- name: Install reserve monitoring agents
+  hosts: vpn_servers
+  gather_facts: true
+  become: true
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/vpn_servers.yml
+  roles:
+    - role: monitoring_agent
+      when: vpn_server_role == "reserve"
+
+- name: Update main Prometheus scrape targets
+  hosts: vpn_servers
+  gather_facts: true
+  become: true
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/vpn_servers.yml
+  tasks:
+    - name: Load monitoring stack defaults
+      ansible.builtin.include_vars:
+        file: ../roles/monitoring_stack/defaults/main.yml
+      when: vpn_server_role == "main"
+
+    - name: Render Prometheus config with current VPN inventory targets
+      ansible.builtin.template:
+        src: ../roles/monitoring_stack/templates/prometheus.yml.j2
+        dest: /etc/prometheus/prometheus.yml
+        owner: root
+        group: root
+        mode: "0644"
+        validate: /usr/bin/promtool check config %s
+      register: prometheus_config_result
+      when: vpn_server_role == "main"
+
+    - name: Restart Prometheus after scrape target changes
+      ansible.builtin.systemd:
+        name: prometheus
+        state: restarted
+      when:
+        - vpn_server_role == "main"
+        - prometheus_config_result.changed

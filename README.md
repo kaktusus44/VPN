@@ -118,16 +118,18 @@ Prometheus ставятся только на `main`.
 
 Важно: после такого отдельного deploy метрики reserve ещё не появятся в
 Prometheus на `main`. Prometheus читает список целей из Ansible inventory,
-который рендерится при deploy monitoring layer на `main`. Поэтому после
-успешного deploy reserve нужно обновить `main`, передав IP reserve:
+который рендерится на `main`. Поэтому после успешного deploy reserve нужно
+подключить reserve к monitoring отдельным лёгким скриптом:
 
 ```bash
-VPN_RESERVE_IP=5.6.7.8 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
+scripts/connect-reserve-monitoring 1.2.3.4 5.6.7.8
 ```
 
-Замените `1.2.3.4` на IP main. Скрипт обновит `inventories/managed/hosts.yml`,
-идемпотентно применит роли и перерендерит Prometheus на `main`, чтобы он начал
-скрейпить обе ноды.
+Замените `1.2.3.4` на IP main, а `5.6.7.8` на IP reserve. Скрипт обновит
+`inventories/managed/hosts.yml`, установит/обновит monitoring exporters на
+reserve и перерендерит Prometheus на `main`, чтобы он начал скрейпить обе ноды.
+VPN core, AmneziaWG/Xray config, клиентские ключи и `/var/lib/vpn` этот скрипт
+не трогает.
 
 ### Добавить reserve при повторном deploy main
 
@@ -140,14 +142,14 @@ VPN_RESERVE_IP=5.6.7.8 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
 ```bash
 cd ~/VPN
 git pull
-VPN_RESERVE_IP=5.6.7.8 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
+scripts/connect-reserve-monitoring 1.2.3.4 5.6.7.8
 ```
 
 Замените `1.2.3.4` на IP `main`, а `5.6.7.8` на IP `reserve`. Скрипт обновит
-`inventories/managed/hosts.yml`, идемпотентно применит VPN core к обеим нодам,
-поставит exporters на reserve и перерендерит Prometheus на main так, чтобы он
-скрейпил оба сервера. На reserve UFW откроет exporter-порты `9100` и `9187`
-только для IP main.
+`inventories/managed/hosts.yml`, поставит exporters на reserve и перерендерит
+Prometheus на main так, чтобы он скрейпил оба сервера. На reserve UFW откроет
+exporter-порты `9100` и `9187` только для IP main. VPN core и клиентские ключи
+не изменяются.
 
 После обновления `main` метрики второго сервера появятся в Prometheus targets:
 `node` для `:9100` и `vpn-custom-exporter` для `:9187`, с labels `role="reserve"`
@@ -216,6 +218,7 @@ host_vars/
 playbooks/
   preflight.yml
   vpn-core.yml
+  connect-reserve-monitoring.yml
   monitoring-agents.yml
   monitoring.yml
   validate.yml
@@ -238,6 +241,7 @@ scripts/
   compare-server-configs
   rotate-endpoint
   deploy-server
+  connect-reserve-monitoring
   destroy-server
   redeploy-server
 docs/
