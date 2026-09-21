@@ -1,11 +1,20 @@
 ---
-- name: Install Docker for MTProto proxy
+- name: Check whether Docker is already installed
+  ansible.builtin.command: docker --version
+  register: mtproto_docker_check
+  changed_when: false
+  failed_when: false
+  when: install_mtproto | bool
+
+- name: Install Docker for MTProto proxy when missing
   ansible.builtin.apt:
     name: docker.io
     state: present
     update_cache: true
     lock_timeout: 1200
-  when: install_mtproto | bool
+  when:
+    - install_mtproto | bool
+    - mtproto_docker_check.rc != 0
 
 - name: Enable Docker
   ansible.builtin.systemd:
