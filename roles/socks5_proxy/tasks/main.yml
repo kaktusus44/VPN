@@ -1,0 +1,69 @@
+---
+- name: Install Dante SOCKS5 server
+  ansible.builtin.apt:
+    name: dante-server
+    state: present
+    update_cache: true
+    lock_timeout: 1200
+  when: install_socks5 | bool
+
+- name: Generate SOCKS5 password once
+  ansible.builtin.shell: umask 077 && openssl rand -hex 12 > /var/lib/vpn/socks5-password
+  args:
+    creates: /var/lib/vpn/socks5-password
+  when: install_socks5 | bool
+  no_log: true
+
+- name: Read SOCKS5 password
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/socks5-password
+  register: socks5_password_raw
+  when: install_socks5 | bool
+  no_log: true
+
+- name: Store SOCKS5 password for setup and export
+  ansible.builtin.set_fact:
+    socks5_password: "{{ socks5_password_raw.content | b64decode | trim }}"
+  when: install_socks5 | bool
+  no_log: true
+
+- name: Create restricted SOCKS5 account
+  ansible.builtin.user:
+    name: "{{ socks5_username }}"
+    shell: /usr/sbin/nologin
+    create_home: false
+    system: true
+  when: install_socks5 | bool
+
+- name: Set SOCKS5 account password
+  ansible.builtin.command: chpasswd
+  args:
+    stdin: "{{ socks5_username }}:{{ socks5_password }}"
+  when: install_socks5 | bool
+  changed_when: false
+  no_log: true
+
+- name: Configure Dante SOCKS5 server
+  ansible.builtin.template:
+    src: danted.conf.j2
+    dest: /etc/danted.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: install_socks5 | bool
+  notify: Restart danted
+
+- name: Enable Dante SOCKS5 server
+  ansible.builtin.systemd:
+    name: danted
+    enabled: true
+    state: started
+  when: install_socks5 | bool
+
+- name: Disable Dante SOCKS5 server when not requested
+  ansible.builtin.systemd:
+    name: danted
+    enabled: false
+    state: stopped
+  when: not (install_socks5 | bool)
+  failed_when: false

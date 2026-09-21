@@ -20,7 +20,7 @@
     set -o pipefail &&
     (systemctl list-units --type=service --all --no-pager;
      systemctl list-unit-files --type=service --no-pager)
-    | grep -Ei 'amnezia|awg|wireguard|wg-|xray|v2ray|unbound|dns|monitor|prometheus|grafana|node_exporter|exporter|nginx|fail2ban|ssh|ufw'
+    | grep -Ei 'amnezia|awg|wireguard|wg-|xray|v2ray|unbound|dns|monitor|prometheus|grafana|node_exporter|exporter|nginx|fail2ban|danted|docker|ssh|ufw'
     | sort -u
   args:
     executable: /bin/bash
@@ -35,4 +35,3 @@
       sockets: "{{ validation_sockets.stdout_lines }}"
       ufw: "{{ validation_ufw.stdout_lines }}"
       services: "{{ validation_services.stdout_lines }}"
-

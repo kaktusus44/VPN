@@ -27,9 +27,10 @@ cd ~/VPN
 scripts/deploy-server
 ```
 
-Скрипт сам спросит роль (`main` или `reserve`), IP сервера и сколько Amnezia
-ключей генерить. Для `main` он также спросит, есть ли уже `reserve`-нода для
-централизованного мониторинга. Для `reserve` он спросит IP `main`, чтобы сразу
+Скрипт сам спросит роль (`main` или `reserve`), IP сервера, сколько Amnezia
+ключей генерить и нужно ли установить MTProto и SOCKS5 proxy. Для `main` он
+также спросит, есть ли уже `reserve`-нода для централизованного мониторинга.
+Для `reserve` он спросит IP `main`, чтобы сразу
 подключить метрики reserve к Prometheus на `main`. Для `main` скрипт также
 спросит, подключать ли Telegram alerts, и пароль администратора Grafana. Если
 количество не ввести, будет 100. Он сам создаёт Ansible inventory, запускает VPN
@@ -39,10 +40,26 @@ core, monitoring layer и проверяет результат. Grafana на `m
 наружу через nginx HTTPS с Basic Auth на порту `9445`. В итоговом выводе скрипт
 показывает, сколько заняло развёртывание.
 
+Если proxy выбраны, итоговый вывод содержит готовые Telegram-ссылки вида
+`https://t.me/proxy?...` и `https://t.me/socks?...`. Они также сохраняются на
+VPS в `/var/lib/vpn/telegram-proxy-links.txt`. MTProto по умолчанию использует
+`9444/tcp` (порт `9443` уже занят Alertmanager), SOCKS5 — `1080/tcp` и
+пользователя `proxyuser`. Секреты генерируются на VPS и сохраняются при обычном
+повторном deploy.
+
 Можно без вопросов:
 
 ```bash
 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
+```
+
+Запуск с обоими Telegram proxy без дополнительных вопросов:
+
+```bash
+VPN_CLIENT_COUNT=100 \
+VPN_INSTALL_MTPROTO=yes \
+VPN_INSTALL_SOCKS5=yes \
+scripts/deploy-server main 1.2.3.4
 ```
 
 Для полностью безвопросного `main` deploy с алертами:

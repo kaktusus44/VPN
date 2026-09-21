@@ -30,6 +30,28 @@
     proto: udp
   loop: "{{ vpn_public_udp_ports }}"
 
+- name: Allow optional Telegram proxy TCP ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: tcp
+  loop:
+    - { port: "{{ mtproto_port }}", enabled: "{{ install_mtproto }}" }
+    - { port: "{{ socks5_port }}", enabled: "{{ install_socks5 }}" }
+  when: item.enabled | bool
+
+- name: Remove firewall rules for disabled Telegram proxies
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: tcp
+    delete: true
+  loop:
+    - { port: "{{ mtproto_port }}", enabled: "{{ install_mtproto }}" }
+    - { port: "{{ socks5_port }}", enabled: "{{ install_socks5 }}" }
+  when: not (item.enabled | bool)
+  failed_when: false
+
 - name: Deny forbidden public ports
   community.general.ufw:
     rule: deny

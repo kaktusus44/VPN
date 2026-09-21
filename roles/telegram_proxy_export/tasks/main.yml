@@ -1,0 +1,16 @@
+---
+- name: Export Telegram proxy links
+  ansible.builtin.template:
+    src: telegram-proxy-links.txt.j2
+    dest: "{{ telegram_proxy_links_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: install_mtproto | bool or install_socks5 | bool
+  no_log: true
+
+- name: Remove stale Telegram proxy export when both proxies are disabled
+  ansible.builtin.file:
+    path: "{{ telegram_proxy_links_path }}"
+    state: absent
+  when: not (install_mtproto | bool) and not (install_socks5 | bool)

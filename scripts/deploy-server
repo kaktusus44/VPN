@@ -8,6 +8,8 @@ SERVER_IP=""
 MAIN_IP="${VPN_MAIN_IP:-}"
 RESERVE_IP="${VPN_RESERVE_IP:-}"
 CLIENT_COUNT="${VPN_CLIENT_COUNT:-}"
+INSTALL_MTPROTO="${VPN_INSTALL_MTPROTO:-}"
+INSTALL_SOCKS5="${VPN_INSTALL_SOCKS5:-}"
 TELEGRAM_ALERTS="${VPN_TELEGRAM_ALERTS:-}"
 TELEGRAM_BOT_TOKEN="${VPN_TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${VPN_TELEGRAM_CHAT_ID:-}"
@@ -59,6 +61,19 @@ yes_no() {
   case "$1" in
     y|Y|yes|YES|да|Да|ДА|1|true|TRUE) return 0 ;;
     *) return 1 ;;
+  esac
+}
+
+normalize_yes_no() {
+  local value="$1"
+  local prompt="$2"
+  if [ -z "$value" ]; then
+    value="$(ask_tty "$prompt [y/N]: " || true)"
+  fi
+  case "${value,,}" in
+    y|yes|да|д|1|true) printf 'true' ;;
+    n|no|нет|н|0|false|"") printf 'false' ;;
+    *) echo "Ожидался ответ yes/no, получено: $value" >&2; return 1 ;;
   esac
 }
 
@@ -238,6 +253,8 @@ if ! [[ "$CLIENT_COUNT" =~ ^[0-9]+$ ]] || [ "$CLIENT_COUNT" -lt 1 ] || [ "$CLIEN
 fi
 
 printf -v LAST_CLIENT_ID "client-%03d" "$CLIENT_COUNT"
+INSTALL_MTPROTO="$(normalize_yes_no "$INSTALL_MTPROTO" "Установить MTProto proxy для Telegram?")"
+INSTALL_SOCKS5="$(normalize_yes_no "$INSTALL_SOCKS5" "Установить SOCKS5 proxy для Telegram?")"
 
 if [ "$SERVER_ROLE" = "main" ]; then
   if [ -z "$TELEGRAM_ALERTS" ]; then
@@ -360,6 +377,8 @@ cat <<EOF
   main IP для monitoring: ${MAIN_IP:-не задан}
   reserve IP: ${RESERVE_IP:-не задан}
   Amnezia клиентов: $CLIENT_COUNT
+  MTProto proxy: $INSTALL_MTPROTO
+  SOCKS5 proxy: $INSTALL_SOCKS5
   inventory: $INVENTORY_PATH
 
 Что произойдёт:
@@ -387,7 +406,8 @@ VPN_CORE_LIMIT_ARGS=()
 if [ "$SERVER_ROLE" = "reserve" ]; then
   VPN_CORE_LIMIT_ARGS=(--limit vpn-reserve)
 fi
-"$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/vpn-core.yml "${VPN_CORE_LIMIT_ARGS[@]}" -e "vpn_client_count=$CLIENT_COUNT"
+"$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/vpn-core.yml "${VPN_CORE_LIMIT_ARGS[@]}" \
+  -e "vpn_client_count=$CLIENT_COUNT install_mtproto=$INSTALL_MTPROTO install_socks5=$INSTALL_SOCKS5"
 
 wait_for_ansible_hosts "После VPN core"
 
@@ -431,6 +451,12 @@ for attempt in $(seq 1 "$CHECK_ATTEMPTS"); do
     DEPLOY_FINISHED_AT="$(date +%s)"
     DEPLOY_DURATION_SECONDS=$((DEPLOY_FINISHED_AT - DEPLOY_STARTED_AT))
     DEPLOY_DURATION="$(format_duration "$DEPLOY_DURATION_SECONDS")"
+    if [ "$INSTALL_MTPROTO" = true ] || [ "$INSTALL_SOCKS5" = true ]; then
+      PROXY_LINKS="$(ssh -i "$SSH_KEY_PATH" -o BatchMode=yes "root@$SERVER_IP" \
+        "cat /var/lib/vpn/telegram-proxy-links.txt")"
+    else
+      PROXY_LINKS="MTProto и SOCKS5 не выбраны."
+    fi
     cat <<EOF
 
 ===== ИТОГ DEPLOY =====
@@ -440,6 +466,8 @@ for attempt in $(seq 1 "$CHECK_ATTEMPTS"); do
   main IP для monitoring: ${MAIN_IP:-не задан}
   reserve IP: ${RESERVE_IP:-не задан}
   Amnezia клиентов: $CLIENT_COUNT
+  MTProto proxy: $INSTALL_MTPROTO (TCP/9444)
+  SOCKS5 proxy: $INSTALL_SOCKS5 (TCP/1080)
   inventory: $INVENTORY_PATH
 
 Deploy завершён.
@@ -460,6 +488,10 @@ Deploy завершён.
   /var/lib/vpn/amneziawg-client-configs.txt # $CLIENT_COUNT .awg.conf подряд
   /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/$LAST_CLIENT_ID.awg.conf
   /var/lib/vpn/client-links.txt             # индекс экспортов + Xray/VLESS links
+  /var/lib/vpn/telegram-proxy-links.txt     # Telegram proxy links, если выбраны
+
+Telegram-ссылки:
+$PROXY_LINKS
 
 Следующий этап:
   $GRAFANA_ACCESS_SUMMARY

@@ -17,6 +17,7 @@
     - prometheus
     - prometheus-alertmanager
     - grafana-server
+    - danted
   failed_when: false
 
 - name: Disable UFW before removing rules
@@ -57,6 +58,12 @@
     - /var/lib/vpn
     - /var/lib/vpn-custom-exporter
     - /var/lib/vpn-asn
+    - /etc/danted.conf
+
+- name: Remove managed MTProto container
+  ansible.builtin.command: docker rm -f mtproto-proxy
+  changed_when: false
+  failed_when: false
 
 - name: Reload systemd after unit removal
   ansible.builtin.systemd:
@@ -77,6 +84,8 @@
       - prometheus
       - prometheus-alertmanager
       - grafana
+      - dante-server
+      - docker.io
     state: absent
     purge: true
     autoremove: true

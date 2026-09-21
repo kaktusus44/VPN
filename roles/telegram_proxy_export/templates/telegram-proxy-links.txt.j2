@@ -1,0 +1,3 @@
+{% if install_mtproto | bool %}https://t.me/proxy?server={{ vpn_public_endpoint }}&port={{ mtproto_port }}&secret={{ mtproto_secret }}
+{% endif %}{% if install_socks5 | bool %}https://t.me/socks?server={{ vpn_public_endpoint }}&port={{ socks5_port }}&user={{ socks5_username | urlencode }}&pass={{ socks5_password | urlencode }}
+{% endif %}

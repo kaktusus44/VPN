@@ -4,6 +4,8 @@ set -Eeuo pipefail
 SERVER_IP="${1:-}"
 SERVER_ROLE="${2:-}"
 CLIENT_COUNT="${VPN_CLIENT_COUNT:-}"
+INSTALL_MTPROTO="${VPN_INSTALL_MTPROTO:-}"
+INSTALL_SOCKS5="${VPN_INSTALL_SOCKS5:-}"
 TELEGRAM_ALERTS="${VPN_TELEGRAM_ALERTS:-}"
 TELEGRAM_BOT_TOKEN="${VPN_TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${VPN_TELEGRAM_CHAT_ID:-}"
@@ -57,6 +59,19 @@ random_secret() {
   python3 -c 'import secrets; print(secrets.token_urlsafe(24))'
 }
 
+normalize_yes_no() {
+  local value="$1"
+  local prompt="$2"
+  if [ -z "$value" ]; then
+    value="$(ask_tty "$prompt [y/N]: " || true)"
+  fi
+  case "${value,,}" in
+    y|yes|да|д|1|true) printf 'true' ;;
+    n|no|нет|н|0|false|"") printf 'false' ;;
+    *) echo "Ожидался ответ yes/no, получено: $value" >&2; return 1 ;;
+  esac
+}
+
 format_duration() {
   local total_seconds="$1"
   local hours=$((total_seconds / 3600))
@@ -106,6 +121,8 @@ if ! [[ "$CLIENT_COUNT" =~ ^[0-9]+$ ]] || [ "$CLIENT_COUNT" -lt 1 ] || [ "$CLIEN
 fi
 
 printf -v LAST_CLIENT_ID "client-%03d" "$CLIENT_COUNT"
+INSTALL_MTPROTO="$(normalize_yes_no "$INSTALL_MTPROTO" "Установить MTProto proxy для Telegram?")"
+INSTALL_SOCKS5="$(normalize_yes_no "$INSTALL_SOCKS5" "Установить SOCKS5 proxy для Telegram?")"
 
 if [ "$SERVER_ROLE" = "main" ]; then
   if [ -z "$TELEGRAM_ALERTS" ]; then
@@ -170,6 +187,7 @@ fi
 cd "$(dirname "$0")/.."
 
 ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
+SSH_KEY_PATH="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
 MONITORING_EXTRA_VARS_FILE=""
 DEPLOY_STARTED_AT=0
 
@@ -200,6 +218,8 @@ cat <<EOF
   роль: $SERVER_ROLE
   IP: $SERVER_IP
   Amnezia клиентов: $CLIENT_COUNT
+  MTProto proxy: $INSTALL_MTPROTO
+  SOCKS5 proxy: $INSTALL_SOCKS5
 
 Что произойдёт:
   1. read-only preflight
@@ -209,7 +229,7 @@ cat <<EOF
   5. итоговый read-only preflight
 
 Что reset удаляет/останавливает:
-  awg/wg/xray/unbound/fail2ban/vpn-custom-exporter
+  awg/wg/xray/unbound/fail2ban/vpn-custom-exporter, MTProto и SOCKS5
   UFW rules/package
   управляемые VPN config files и /var/lib/vpn
 
@@ -249,7 +269,8 @@ echo "==> [2/5] Destroy managed VPN stack"
 
 echo
 echo "==> [3/5] Deploy current managed VPN stack"
-"$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/vpn-core.yml -e "vpn_client_count=$CLIENT_COUNT"
+"$ANSIBLE_PLAYBOOK_BIN" -i inventories/test/hosts.yml playbooks/vpn-core.yml \
+  -e "vpn_client_count=$CLIENT_COUNT install_mtproto=$INSTALL_MTPROTO install_socks5=$INSTALL_SOCKS5"
 
 wait_for_ssh "После VPN core"
 
@@ -288,6 +309,12 @@ scripts/check-server "$SERVER_IP" "$SERVER_ROLE"
 DEPLOY_FINISHED_AT="$(date +%s)"
 DEPLOY_DURATION_SECONDS=$((DEPLOY_FINISHED_AT - DEPLOY_STARTED_AT))
 DEPLOY_DURATION="$(format_duration "$DEPLOY_DURATION_SECONDS")"
+if [ "$INSTALL_MTPROTO" = true ] || [ "$INSTALL_SOCKS5" = true ]; then
+  PROXY_LINKS="$(ssh -i "$SSH_KEY_PATH" -o BatchMode=yes "root@$SERVER_IP" \
+    "cat /var/lib/vpn/telegram-proxy-links.txt")"
+else
+  PROXY_LINKS="MTProto и SOCKS5 не выбраны."
+fi
 
 cat <<EOF
 
@@ -296,6 +323,8 @@ cat <<EOF
   роль: $SERVER_ROLE
   IP: $SERVER_IP
   Amnezia клиентов: $CLIENT_COUNT
+  MTProto proxy: $INSTALL_MTPROTO (TCP/9444)
+  SOCKS5 proxy: $INSTALL_SOCKS5 (TCP/1080)
 
 Что сделано:
   preflight до reset: выполнен
@@ -319,6 +348,10 @@ cat <<EOF
   /var/lib/vpn/amneziawg-client-configs.txt # $CLIENT_COUNT .awg.conf подряд
   /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/$LAST_CLIENT_ID.awg.conf
   /var/lib/vpn/client-links.txt             # индекс экспортов + Xray/VLESS links
+  /var/lib/vpn/telegram-proxy-links.txt     # Telegram proxy links, если выбраны
+
+Telegram-ссылки:
+$PROXY_LINKS
 
 Следующий этап:
   $GRAFANA_ACCESS_SUMMARY
@@ -327,6 +360,6 @@ cat <<EOF
 
 Повторить:
   cd "$PWD"
-  VPN_CLIENT_COUNT=$CLIENT_COUNT scripts/redeploy-server $SERVER_IP $SERVER_ROLE
+  VPN_CLIENT_COUNT=$CLIENT_COUNT VPN_INSTALL_MTPROTO=$INSTALL_MTPROTO VPN_INSTALL_SOCKS5=$INSTALL_SOCKS5 scripts/redeploy-server $SERVER_IP $SERVER_ROLE
 ===== КОНЕЦ ИТОГА =====
 EOF

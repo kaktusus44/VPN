@@ -1,0 +1,71 @@
+---
+- name: Install Docker for MTProto proxy
+  ansible.builtin.apt:
+    name: docker.io
+    state: present
+    update_cache: true
+    lock_timeout: 1200
+  when: install_mtproto | bool
+
+- name: Enable Docker
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+  when: install_mtproto | bool
+
+- name: Generate MTProto secret once
+  ansible.builtin.shell: umask 077 && openssl rand -hex 16 > /var/lib/vpn/mtproto-secret
+  args:
+    creates: /var/lib/vpn/mtproto-secret
+  when: install_mtproto | bool
+  no_log: true
+
+- name: Read MTProto secret
+  ansible.builtin.slurp:
+    src: /var/lib/vpn/mtproto-secret
+  register: mtproto_secret_raw
+  when: install_mtproto | bool
+  no_log: true
+
+- name: Store MTProto secret for export
+  ansible.builtin.set_fact:
+    mtproto_secret: "{{ mtproto_secret_raw.content | b64decode | trim }}"
+  when: install_mtproto | bool
+  no_log: true
+
+- name: Pull MTProto proxy image
+  ansible.builtin.command: docker pull telegrammessenger/proxy:latest
+  when: install_mtproto | bool
+  changed_when: false
+
+- name: Replace existing MTProto proxy container
+  ansible.builtin.command: docker rm -f mtproto-proxy
+  when: install_mtproto | bool
+  changed_when: false
+  failed_when: false
+
+- name: Run MTProto proxy container
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --detach
+      - --name
+      - mtproto-proxy
+      - --restart
+      - always
+      - --publish
+      - "{{ mtproto_port }}:443"
+      - --env
+      - "SECRET={{ mtproto_secret }}"
+      - --env
+      - WORKERS=2
+      - telegrammessenger/proxy:latest
+  when: install_mtproto | bool
+  no_log: true
+
+- name: Remove MTProto proxy when disabled
+  ansible.builtin.shell: command -v docker >/dev/null 2>&1 && docker rm -f mtproto-proxy || true
+  when: not (install_mtproto | bool)
+  changed_when: false

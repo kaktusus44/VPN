@@ -13,4 +13,7 @@
     - amneziawg
     - unbound_dns
     - xray_reality
+    - mtproto_proxy
+    - socks5_proxy
+    - telegram_proxy_export
     - vpn_clients

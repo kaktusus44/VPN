@@ -16,3 +16,10 @@ vpn_public_udp_ports:
 vpn_forbidden_public_ports:
   - 8877
 
+# Optional Telegram proxies. scripts/deploy-server passes the user's choices.
+install_mtproto: false
+install_socks5: false
+mtproto_port: 9444
+socks5_port: 1080
+socks5_username: proxyuser
+telegram_proxy_links_path: /var/lib/vpn/telegram-proxy-links.txt
