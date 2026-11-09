@@ -86,7 +86,10 @@
   community.general.ufw:
     rule: deny
     route: true
-    insert: 1
+    # UFW numbers IPv4 rules before IPv6; absolute position 1 may be invalid.
+    # Relative insertion also appends correctly when there are no IPv6 rules yet.
+    insert: 0
+    insert_relative_to: first-ipv6
     interface_in: "{{ awg_interface }}"
     from_ip: "::/0"
     to_ip: "::/0"
