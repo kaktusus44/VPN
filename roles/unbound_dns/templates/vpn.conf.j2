@@ -1,5 +1,11 @@
 #jinja2: trim_blocks: False
 server:
+{% if vpn_exit_ipv4 | default('') | length > 0 %}
+  outgoing-interface: {{ vpn_exit_ipv4 }}
+{% endif %}
+{% if vpn_disable_ipv6 | default(false) | bool %}
+  do-ip6: no
+{% endif %}
   interface: {{ unbound_ipv4_listen }}
 {% if vpn_enable_ipv6 | bool %}
   interface: {{ unbound_ipv6_listen }}

@@ -1,0 +1,114 @@
+---
+- name: Disable SSH passwords with validation and rollback
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify a fresh key-only login before changing SSH
+      ansible.builtin.command: &key_login
+        argv:
+          - ssh
+          - -i
+          - "{{ lookup('env', 'VPN_SSH_KEY') | default(lookup('env', 'HOME') ~ '/.ssh/vpn_ansible', true) }}"
+          - -o
+          - BatchMode=yes
+          - -o
+          - IdentitiesOnly=yes
+          - -o
+          - PreferredAuthentications=publickey
+          - -o
+          - PasswordAuthentication=no
+          - -o
+          - KbdInteractiveAuthentication=no
+          - -o
+          - ControlPath=none
+          - -o
+          - ConnectTimeout=10
+          - "root@{{ ansible_host }}"
+          - "true"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+    - name: Read the current SSH connection context
+      ansible.builtin.shell: 'printf "%s" "$SSH_CONNECTION"'
+      become: false
+      register: ssh_connection
+      changed_when: false
+    - name: Check installed SSH keys
+      ansible.builtin.command: test -s /root/.ssh/authorized_keys
+      changed_when: false
+    - name: Read current effective SSH configuration
+      ansible.builtin.command: /usr/sbin/sshd -T
+      changed_when: false
+    - name: Check previous managed SSH override
+      ansible.builtin.stat:
+        path: /etc/ssh/sshd_config.d/00-vpn-key-only.conf
+      register: ssh_override
+    - name: Read previous managed SSH override
+      ansible.builtin.slurp:
+        src: /etc/ssh/sshd_config.d/00-vpn-key-only.conf
+      register: ssh_previous
+      when: ssh_override.stat.exists
+    - name: Apply key-only authentication transaction
+      block:
+        - name: Install early SSH override
+          ansible.builtin.copy:
+            dest: /etc/ssh/sshd_config.d/00-vpn-key-only.conf
+            mode: "0600"
+            content: |
+              PasswordAuthentication no
+              KbdInteractiveAuthentication no
+              PubkeyAuthentication yes
+              AuthenticationMethods publickey
+          register: ssh_changed
+        - name: Validate complete sshd configuration
+          ansible.builtin.command: /usr/sbin/sshd -t
+          changed_when: false
+        - name: Check effective authentication policy for the controller connection
+          ansible.builtin.command:
+            argv:
+              - /usr/sbin/sshd
+              - -T
+              - -C
+              - "user=root,addr={{ ssh_connection.stdout.split()[0] }},host={{ ssh_connection.stdout.split()[0] }},laddr={{ ssh_connection.stdout.split()[2] }},lport={{ ssh_connection.stdout.split()[3] }}"
+          register: ssh_effective
+          changed_when: false
+        - name: Require effective key-only policy
+          ansible.builtin.assert:
+            that:
+              - "'passwordauthentication no' in ssh_effective.stdout_lines"
+              - "'kbdinteractiveauthentication no' in ssh_effective.stdout_lines"
+              - "'pubkeyauthentication yes' in ssh_effective.stdout_lines"
+              - "'authenticationmethods publickey' in ssh_effective.stdout_lines"
+        - name: Reload SSH without interrupting sessions
+          ansible.builtin.systemd:
+            name: ssh
+            state: reloaded
+          when: ssh_changed.changed
+        - name: Verify fresh key-only SSH login after reload
+          ansible.builtin.command: *key_login
+          delegate_to: localhost
+          become: false
+          changed_when: false
+      rescue:
+        - name: Restore previous SSH override
+          ansible.builtin.copy:
+            dest: /etc/ssh/sshd_config.d/00-vpn-key-only.conf
+            content: "{{ ssh_previous.content | b64decode }}"
+            mode: "0600"
+          when: ssh_override.stat.exists
+        - name: Remove newly added SSH override
+          ansible.builtin.file:
+            path: /etc/ssh/sshd_config.d/00-vpn-key-only.conf
+            state: absent
+          when: not ssh_override.stat.exists
+        - name: Validate restored SSH configuration
+          ansible.builtin.command: /usr/sbin/sshd -t
+          changed_when: false
+        - name: Reload restored SSH configuration
+          ansible.builtin.systemd:
+            name: ssh
+            state: reloaded
+        - name: Report rollback
+          ansible.builtin.fail:
+            msg: SSH password change failed; previous configuration restored.

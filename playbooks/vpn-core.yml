@@ -7,6 +7,7 @@
     - ../group_vars/all.yml
     - ../group_vars/vpn_servers.yml
   roles:
+    - vpn_network
     - base
     - firewall
     - fail2ban
@@ -17,3 +18,19 @@
     - socks5_proxy
     - telegram_proxy_export
     - vpn_clients
+  post_tasks:
+    - name: Apply changed VPN configurations before readiness checks
+      ansible.builtin.meta: flush_handlers
+    - name: Check essential services
+      ansible.builtin.command: "systemctl is-active {{ item }}"
+      loop:
+        - "awg-quick@{{ awg_interface }}"
+        - xray
+        - unbound
+      changed_when: false
+    - name: Check generated client artifacts
+      ansible.builtin.command: "test -s {{ item }}"
+      loop:
+        - "{{ export_amnezia_vpn_links_path }}"
+        - "{{ export_xray_links_path }}"
+      changed_when: false

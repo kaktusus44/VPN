@@ -1,7 +1,14 @@
 ---
+- name: Keep an existing Docker installation when enabling MTProto
+  ansible.builtin.command: docker --version
+  register: vpn_docker_check
+  changed_when: false
+  failed_when: false
+  when: install_mtproto | bool
+
 - name: Install base packages
-  ansible.builtin.apt:
-    name:
+  vars:
+    vpn_core_packages:
       - ca-certificates
       - curl
       - gnupg
@@ -10,8 +17,19 @@
       - fail2ban
       - unattended-upgrades
       - vim
+      - unzip
+      - openssl
+      - unbound
+      - iproute2
+      - iptables
+      - python3
+      - python3-yaml
+      - software-properties-common
+  ansible.builtin.apt:
+    name: "{{ vpn_core_packages + (['docker.io'] if install_mtproto | bool and vpn_docker_check.rc != 0 else []) + (['dante-server'] if install_socks5 | bool else []) }}"
     state: present
     update_cache: true
+    cache_valid_time: 3600
     lock_timeout: 1200
 
 - name: Enable unattended upgrades

@@ -1,0 +1,8 @@
+---
+- name: Reload xray-exporter systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+- name: Restart xray-exporter
+  ansible.builtin.systemd:
+    name: xray-exporter
+    state: restarted

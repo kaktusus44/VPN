@@ -9,6 +9,7 @@
       - prometheus-node-exporter
     state: present
     update_cache: true
+    cache_valid_time: 3600
     lock_timeout: 1200
 
 - name: Enable node exporter service
@@ -74,12 +75,14 @@
     mode: "0644"
   notify: Reload systemd
 
+- name: Apply changed monitoring units
+  ansible.builtin.meta: flush_handlers
+
 - name: Enable ASN table updater timer
   ansible.builtin.systemd:
     name: vpn-asn-update.timer
     enabled: true
     state: started
-    daemon_reload: true
 
 - name: Download initial ASN table when missing
   ansible.builtin.command: /usr/local/bin/vpn-asn-update
@@ -106,12 +109,14 @@
     - Reload systemd
     - Restart vpn-custom-exporter
 
+- name: Apply changed exporter units
+  ansible.builtin.meta: flush_handlers
+
 - name: Enable VPN custom exporter service
   ansible.builtin.systemd:
     name: vpn-custom-exporter
     enabled: true
     state: started
-    daemon_reload: true
 
 - name: Allow main Prometheus to scrape node exporter on reserve
   community.general.ufw:

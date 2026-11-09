@@ -12,6 +12,16 @@ alerting:
             - {{ monitoring_alertmanager_listen_address }}
 
 scrape_configs:
+  - job_name: xray-exporter
+    static_configs:
+{% for host in groups['vpn_servers'] | default([]) %}
+      - targets:
+          - {{ '127.0.0.1' if host == inventory_hostname else hostvars[host].ansible_host }}:{{ hostvars[host].xray_exporter_port | default(9188) }}
+        labels:
+          role: "{{ hostvars[host].vpn_server_role | default('unknown') }}"
+          server: "{{ host }}"
+{% endfor %}
+
   - job_name: prometheus
     static_configs:
       - targets:

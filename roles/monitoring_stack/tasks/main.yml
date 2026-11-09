@@ -16,6 +16,7 @@
       - musl
     state: present
     update_cache: true
+    cache_valid_time: 3600
     lock_timeout: 1200
 
 - name: Check manually installed Grafana apt key
@@ -44,6 +45,7 @@
     name: grafana
     state: present
     update_cache: true
+    cache_valid_time: 3600
     lock_timeout: 1200
   when: monitoring_grafana_deb_path | length == 0
 
@@ -172,11 +174,31 @@
     or (monitoring_alertmanager_external_enabled | bool)
     or (monitoring_prometheus_external_enabled | bool)
 
-- name: Install Grafana Basic Auth password file
-  ansible.builtin.command: >
-    htpasswd -bcB {{ monitoring_grafana_htpasswd_path }}
-    {{ monitoring_grafana_basic_auth_user }}
-    {{ monitoring_grafana_basic_auth_password }}
+- name: Ensure Grafana password file exists
+  ansible.builtin.copy:
+    dest: "{{ monitoring_grafana_htpasswd_path }}"
+    content: ""
+    force: false
+    owner: root
+    group: www-data
+    mode: "0640"
+  when: monitoring_grafana_external_enabled | bool
+
+- name: Install Grafana Basic Auth password file idempotently
+  ansible.builtin.shell: |
+    if [ "$VPN_AUTH_PRESERVE" = true ] && [ -s {{ monitoring_grafana_htpasswd_path }} ]; then
+      echo unchanged
+    elif printf '%s\n' "$VPN_AUTH_PASSWORD" | htpasswd -viB {{ monitoring_grafana_htpasswd_path }} {{ monitoring_grafana_basic_auth_user }} >/dev/null 2>&1; then
+      echo unchanged
+    else
+      printf '%s\n' "$VPN_AUTH_PASSWORD" | htpasswd -iB {{ monitoring_grafana_htpasswd_path }} {{ monitoring_grafana_basic_auth_user }}
+      echo changed
+    fi
+  environment:
+    VPN_AUTH_PASSWORD: "{{ monitoring_grafana_basic_auth_password }}"
+    VPN_AUTH_PRESERVE: "{{ monitoring_preserve_grafana_auth | default(true) | bool | ternary('true', 'false') }}"
+  register: monitoring_grafana_auth_result
+  changed_when: "'changed' in monitoring_grafana_auth_result.stdout_lines"
   no_log: true
   when: monitoring_grafana_external_enabled | bool
   notify: Restart nginx
@@ -199,11 +221,31 @@
   when: monitoring_grafana_external_enabled | bool
   notify: Restart nginx
 
-- name: Install Alertmanager Basic Auth password file
-  ansible.builtin.command: >
-    htpasswd -bcB {{ monitoring_alertmanager_htpasswd_path }}
-    {{ monitoring_alertmanager_basic_auth_user }}
-    {{ monitoring_alertmanager_basic_auth_password }}
+- name: Ensure Alertmanager password file exists
+  ansible.builtin.copy:
+    dest: "{{ monitoring_alertmanager_htpasswd_path }}"
+    content: ""
+    force: false
+    owner: root
+    group: www-data
+    mode: "0640"
+  when: monitoring_alertmanager_external_enabled | bool
+
+- name: Install Alertmanager Basic Auth password file idempotently
+  ansible.builtin.shell: |
+    if [ "$VPN_AUTH_PRESERVE" = true ] && [ -s {{ monitoring_alertmanager_htpasswd_path }} ]; then
+      echo unchanged
+    elif printf '%s\n' "$VPN_AUTH_PASSWORD" | htpasswd -viB {{ monitoring_alertmanager_htpasswd_path }} {{ monitoring_alertmanager_basic_auth_user }} >/dev/null 2>&1; then
+      echo unchanged
+    else
+      printf '%s\n' "$VPN_AUTH_PASSWORD" | htpasswd -iB {{ monitoring_alertmanager_htpasswd_path }} {{ monitoring_alertmanager_basic_auth_user }}
+      echo changed
+    fi
+  environment:
+    VPN_AUTH_PASSWORD: "{{ monitoring_alertmanager_basic_auth_password }}"
+    VPN_AUTH_PRESERVE: "{{ monitoring_preserve_alertmanager_auth | default(true) | bool | ternary('true', 'false') }}"
+  register: monitoring_alertmanager_auth_result
+  changed_when: "'changed' in monitoring_alertmanager_auth_result.stdout_lines"
   no_log: true
   when: monitoring_alertmanager_external_enabled | bool
   notify: Restart nginx
@@ -226,11 +268,31 @@
   when: monitoring_alertmanager_external_enabled | bool
   notify: Restart nginx
 
-- name: Install Prometheus Basic Auth password file
-  ansible.builtin.command: >
-    htpasswd -bcB {{ monitoring_prometheus_htpasswd_path }}
-    {{ monitoring_prometheus_basic_auth_user }}
-    {{ monitoring_prometheus_basic_auth_password }}
+- name: Ensure Prometheus password file exists
+  ansible.builtin.copy:
+    dest: "{{ monitoring_prometheus_htpasswd_path }}"
+    content: ""
+    force: false
+    owner: root
+    group: www-data
+    mode: "0640"
+  when: monitoring_prometheus_external_enabled | bool
+
+- name: Install Prometheus Basic Auth password file idempotently
+  ansible.builtin.shell: |
+    if [ "$VPN_AUTH_PRESERVE" = true ] && [ -s {{ monitoring_prometheus_htpasswd_path }} ]; then
+      echo unchanged
+    elif printf '%s\n' "$VPN_AUTH_PASSWORD" | htpasswd -viB {{ monitoring_prometheus_htpasswd_path }} {{ monitoring_prometheus_basic_auth_user }} >/dev/null 2>&1; then
+      echo unchanged
+    else
+      printf '%s\n' "$VPN_AUTH_PASSWORD" | htpasswd -iB {{ monitoring_prometheus_htpasswd_path }} {{ monitoring_prometheus_basic_auth_user }}
+      echo changed
+    fi
+  environment:
+    VPN_AUTH_PASSWORD: "{{ monitoring_prometheus_basic_auth_password }}"
+    VPN_AUTH_PRESERVE: "{{ monitoring_preserve_prometheus_auth | default(true) | bool | ternary('true', 'false') }}"
+  register: monitoring_prometheus_auth_result
+  changed_when: "'changed' in monitoring_prometheus_auth_result.stdout_lines"
   no_log: true
   when: monitoring_prometheus_external_enabled | bool
   notify: Restart nginx
@@ -344,11 +406,32 @@
     mode: "0644"
   notify: Restart grafana
 
+- name: Install dedicated Xray dashboard
+  ansible.builtin.template:
+    src: grafana-dashboard-xray.json.j2
+    dest: /var/lib/grafana/dashboards/vpn/xray-connections.json
+    owner: grafana
+    group: grafana
+    mode: "0644"
+
 - name: Enable Prometheus
   ansible.builtin.systemd:
     name: prometheus
     enabled: true
     state: started
+
+- name: Create monitoring settings directory
+  ansible.builtin.file:
+    path: /var/lib/vpn
+    state: directory
+    mode: "0700"
+
+- name: Save monitoring settings for repeat phase runs
+  ansible.builtin.copy:
+    dest: /var/lib/vpn/monitoring-settings.json
+    mode: "0600"
+    content: "{{ {'monitoring_grafana_admin_password': monitoring_grafana_admin_password, 'monitoring_grafana_basic_auth_password': monitoring_grafana_basic_auth_password, 'monitoring_alertmanager_basic_auth_password': monitoring_alertmanager_basic_auth_password, 'monitoring_alertmanager_telegram_enabled': monitoring_alertmanager_telegram_enabled, 'monitoring_alertmanager_telegram_bot_token': monitoring_alertmanager_telegram_bot_token, 'monitoring_alertmanager_telegram_chat_id': monitoring_alertmanager_telegram_chat_id} | to_nice_json }}\n"
+  no_log: true
 
 - name: Enable Alertmanager
   ansible.builtin.systemd:

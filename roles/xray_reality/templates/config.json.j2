@@ -5,6 +5,13 @@
     "error": "/var/log/xray/error.log",
     "loglevel": "info"
   },
+{% if vpn_disable_ipv6 | default(false) | bool or vpn_exit_ipv4 | default('') | length > 0 %}
+  "dns": {
+    "servers": ["1.1.1.1", "8.8.8.8"],
+    "queryStrategy": "UseIPv4",
+    "tag": "vpn-dns"
+  },
+{% endif %}
   "inbounds": [
     {
       "tag": "vless-xhttp-reality",
@@ -70,9 +77,19 @@
     {
       "protocol": "freedom",
       "tag": "direct",
+{% if vpn_exit_ipv4 | default('') | length > 0 %}
+      "sendThrough": "{{ vpn_exit_ipv4 }}",
+{% endif %}
       "settings": {
-        "domainStrategy": "UseIPv4"
+        "domainStrategy": "{{ 'ForceIPv4' if vpn_disable_ipv6 | default(false) | bool else 'UseIPv4' }}"
       }
-    }
-  ]
+    }{% if vpn_disable_ipv6 | default(false) | bool %},
+    {"protocol": "blackhole", "tag": "block-ipv6"}
+{% endif %}
+  ]{% if vpn_disable_ipv6 | default(false) | bool %},
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [{"type": "field", "ip": ["::/0"], "outboundTag": "block-ipv6"}]
+  }
+{% endif %}
 }

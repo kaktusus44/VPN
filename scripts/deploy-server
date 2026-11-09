@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+PHASE="${VPN_PHASE:-all}"
+if [ "${1:-}" = "--phase" ]; then
+  PHASE="${2:?phase required}"
+  shift 2
+fi
+case "$PHASE" in all|core|monitoring|exporter) ;; *) echo 'Phase: all/core/monitoring/exporter' >&2; exit 1 ;; esac
 ARG1="${1:-}"
 ARG2="${2:-}"
 SERVER_ROLE=""
@@ -17,14 +23,12 @@ GRAFANA_ADMIN_PASSWORD="${VPN_GRAFANA_ADMIN_PASSWORD:-}"
 GRAFANA_BASIC_AUTH_PASSWORD="${VPN_GRAFANA_BASIC_AUTH_PASSWORD:-}"
 ALERTMANAGER_BASIC_AUTH_PASSWORD="${VPN_ALERTMANAGER_BASIC_AUTH_PASSWORD:-}"
 GRAFANA_DEB_PATH="${VPN_GRAFANA_DEB_PATH:-}"
-CHECK_ATTEMPTS="${VPN_CHECK_ATTEMPTS:-5}"
-CHECK_DELAY_SECONDS="${VPN_CHECK_DELAY_SECONDS:-10}"
 SSH_KEY_PATH="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
 
 ask_tty() {
   local prompt="$1"
   local answer
-  if [ ! -r /dev/tty ]; then
+  if [ "${VPN_NONINTERACTIVE:-0}" = 1 ] || [ ! -r /dev/tty ]; then
     return 1
   fi
   read -r -p "$prompt" answer </dev/tty
@@ -34,7 +38,7 @@ ask_tty() {
 ask_tty_secret() {
   local prompt="$1"
   local answer
-  if [ ! -r /dev/tty ]; then
+  if [ "${VPN_NONINTERACTIVE:-0}" = 1 ] || [ ! -r /dev/tty ]; then
     return 1
   fi
   read -r -s -p "$prompt" answer </dev/tty
@@ -51,10 +55,13 @@ random_secret() {
 
 validate_ipv4() {
   local value="$1"
-  if ! [[ "$value" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
-    echo "Ожидался IPv4-адрес, получено: $value" >&2
-    exit 1
-  fi
+  python3 - "$value" <<'PY'
+import ipaddress, sys
+try:
+    ipaddress.IPv4Address(sys.argv[1])
+except ValueError:
+    sys.exit('Invalid IPv4: ' + sys.argv[1])
+PY
 }
 
 yes_no() {
@@ -150,26 +157,6 @@ format_duration() {
   fi
 }
 
-wait_for_ansible_hosts() {
-  local label="$1"
-  local attempt
-
-  for attempt in $(seq 1 "$CHECK_ATTEMPTS"); do
-    echo "$label: проверка SSH $attempt/$CHECK_ATTEMPTS"
-    if "$ANSIBLE_BIN" -i "$INVENTORY_PATH" all -m ping; then
-      return 0
-    fi
-
-    if [ "$attempt" -lt "$CHECK_ATTEMPTS" ]; then
-      echo "$label: SSH пока недоступен, повтор через $CHECK_DELAY_SECONDS секунд..."
-      sleep "$CHECK_DELAY_SECONDS"
-    fi
-  done
-
-  echo "$label: SSH/Ansible не восстановился за $CHECK_ATTEMPTS попыток." >&2
-  return 1
-}
-
 if [[ "$ARG1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
   SERVER_IP="$ARG1"
   SERVER_ROLE="$ARG2"
@@ -206,6 +193,48 @@ fi
 
 validate_ipv4 "$SERVER_IP"
 
+
+cd "$(dirname "$0")/.."
+ANSIBLE_BIN="$PWD/.venv/bin/ansible"
+ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
+if [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
+  echo 'Run scripts/bootstrap-ubuntu-control first.' >&2
+  exit 1
+fi
+export ANSIBLE_PRIVATE_KEY_FILE="$SSH_KEY_PATH"
+add_known_host "$SERVER_IP"
+SSH_ARGS=(-i "$SSH_KEY_PATH" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10)
+DISCOVERY="$(ssh "${SSH_ARGS[@]}" "root@$SERVER_IP" 'python3 - discover' < scripts/vpn-network.py)"
+state_value() {
+  python3 -c 'import json,sys; v=json.load(sys.stdin)["state"].get(sys.argv[1], ""); print(str(v).lower() if isinstance(v,bool) else v)' "$1" <<<"$DISCOVERY"
+}
+CLIENT_COUNT="${CLIENT_COUNT:-$(state_value vpn_client_count)}"
+INSTALL_MTPROTO="${INSTALL_MTPROTO:-$(state_value install_mtproto)}"
+INSTALL_SOCKS5="${INSTALL_SOCKS5:-$(state_value install_socks5)}"
+INVENTORY_PATH="$PWD/inventories/managed/$SERVER_IP/hosts.yml"
+MONITORING_EXTRA_VARS_FILE=""
+NETWORK_VARS_FILE="$(mktemp)"
+DEPLOY_STARTED_AT="$(date +%s)"
+cleanup() {
+  rm -f "$NETWORK_VARS_FILE"
+  if [ -n "$MONITORING_EXTRA_VARS_FILE" ]; then rm -f "$MONITORING_EXTRA_VARS_FILE"; fi
+}
+trap cleanup EXIT
+TARGET="vpn-$SERVER_ROLE"
+
+configure_monitoring() {
+if [ "$SERVER_ROLE" = main ]; then
+  MONITORING_STATE="$(ssh "${SSH_ARGS[@]}" "root@$SERVER_IP" 'python3 - monitoring-settings' < scripts/monitoring-state.py)"
+  monitoring_value() {
+    python3 -c 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1], ""); print(str(v).lower() if isinstance(v,bool) else v)' "$1" <<<"$MONITORING_STATE"
+  }
+  TELEGRAM_ALERTS="${TELEGRAM_ALERTS:-$(monitoring_value monitoring_alertmanager_telegram_enabled)}"
+  TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-$(monitoring_value monitoring_alertmanager_telegram_bot_token)}"
+  TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-$(monitoring_value monitoring_alertmanager_telegram_chat_id)}"
+  GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(monitoring_value monitoring_grafana_admin_password)}"
+  GRAFANA_BASIC_AUTH_PASSWORD="${GRAFANA_BASIC_AUTH_PASSWORD:-$(monitoring_value monitoring_grafana_basic_auth_password)}"
+  ALERTMANAGER_BASIC_AUTH_PASSWORD="${ALERTMANAGER_BASIC_AUTH_PASSWORD:-$(monitoring_value monitoring_alertmanager_basic_auth_password)}"
+fi
 if [ "$SERVER_ROLE" = "reserve" ] && [ -z "$MAIN_IP" ]; then
   MAIN_IP="$(ask_tty "IP main сервера для подключения monitoring: " || true)"
 fi
@@ -238,23 +267,6 @@ if [ -n "$RESERVE_IP" ]; then
     exit 1
   fi
 fi
-
-if [ -z "$CLIENT_COUNT" ]; then
-  CLIENT_COUNT="$(ask_tty "Сколько Amnezia ключей генерить [100]: " || true)"
-fi
-
-if [ -z "$CLIENT_COUNT" ]; then
-  CLIENT_COUNT="100"
-fi
-
-if ! [[ "$CLIENT_COUNT" =~ ^[0-9]+$ ]] || [ "$CLIENT_COUNT" -lt 1 ] || [ "$CLIENT_COUNT" -gt 253 ]; then
-  echo "Количество Amnezia ключей должно быть числом от 1 до 253, получено: $CLIENT_COUNT" >&2
-  exit 1
-fi
-
-printf -v LAST_CLIENT_ID "client-%03d" "$CLIENT_COUNT"
-INSTALL_MTPROTO="$(normalize_yes_no "$INSTALL_MTPROTO" "Установить MTProto proxy для Telegram?")"
-INSTALL_SOCKS5="$(normalize_yes_no "$INSTALL_SOCKS5" "Установить SOCKS5 proxy для Telegram?")"
 
 if [ "$SERVER_ROLE" = "main" ]; then
   if [ -z "$TELEGRAM_ALERTS" ]; then
@@ -304,115 +316,118 @@ if [ "$SERVER_ROLE" = "main" ]; then
   fi
 fi
 
-if [ "$SERVER_ROLE" = "main" ]; then
-  MONITORING_STACK_SUMMARY="Monitoring stack: Prometheus + Alertmanager + Grafana"
-  GRAFANA_ACCESS_SUMMARY="Grafana доступна извне по HTTPS + Basic Auth: https://$SERVER_IP/ (self-signed TLS)"
-  ALERTMANAGER_ACCESS_SUMMARY="Alertmanager доступен извне по HTTPS + Basic Auth: https://$SERVER_IP:9443/ (self-signed TLS)"
-  PROMETHEUS_ACCESS_SUMMARY="Prometheus доступен извне по HTTPS + Basic Auth: https://$SERVER_IP:9445/ (self-signed TLS)"
-else
-  if [ -n "$MAIN_IP" ]; then
-    MONITORING_STACK_SUMMARY="Monitoring stack: exporters на reserve, Prometheus targets обновлены на main"
-  else
-    MONITORING_STACK_SUMMARY="Monitoring stack: не ставился на reserve; ставится на main"
-  fi
-  GRAFANA_ACCESS_SUMMARY="Grafana живёт на main и доступна только из VPN"
-  ALERTMANAGER_ACCESS_SUMMARY="Alertmanager живёт на main и доступен только там"
-  PROMETHEUS_ACCESS_SUMMARY="Prometheus живёт на main и доступен только там"
+
+}
+
+if [ "$PHASE" = all ] || [ "$PHASE" = core ]; then
+if [ -z "$CLIENT_COUNT" ]; then
+  CLIENT_COUNT="$(ask_tty "Сколько Amnezia ключей генерить [100]: " || true)"
 fi
 
-cd "$(dirname "$0")/.."
+if [ -z "$CLIENT_COUNT" ]; then
+  CLIENT_COUNT="100"
+fi
 
-INVENTORY_PATH="$PWD/inventories/managed/hosts.yml"
-ANSIBLE_BIN="$PWD/.venv/bin/ansible"
-ANSIBLE_PLAYBOOK_BIN="$PWD/.venv/bin/ansible-playbook"
-MONITORING_EXTRA_VARS_FILE=""
-DEPLOY_STARTED_AT=0
-
-cleanup() {
-  if [ -n "$MONITORING_EXTRA_VARS_FILE" ]; then
-    rm -f "$MONITORING_EXTRA_VARS_FILE"
-  fi
-}
-
-on_exit() {
-  local rc=$?
-  cleanup
-  if [ "$rc" -ne 0 ] && [ "$DEPLOY_STARTED_AT" -gt 0 ]; then
-    echo "Deploy завершился с ошибкой за $(format_duration "$(( $(date +%s) - DEPLOY_STARTED_AT ))")." >&2
-  fi
-}
-trap on_exit EXIT
-
-if [ ! -x "$ANSIBLE_BIN" ] || [ ! -x "$ANSIBLE_PLAYBOOK_BIN" ]; then
-  echo "Совместимая версия Ansible не установлена." >&2
-  echo "Сначала запустите: VPN_DIR=\"$PWD\" bash scripts/bootstrap-ubuntu-control" >&2
+if ! [[ "$CLIENT_COUNT" =~ ^[0-9]+$ ]] || [ "$CLIENT_COUNT" -lt 1 ] || [ "$CLIENT_COUNT" -gt 253 ]; then
+  echo "Количество Amnezia ключей должно быть числом от 1 до 253, получено: $CLIENT_COUNT" >&2
   exit 1
 fi
 
-write_inventory
-add_known_host "$SERVER_IP"
-if [ -n "$MAIN_IP" ]; then
-  add_known_host "$MAIN_IP"
-fi
-if [ -n "$RESERVE_IP" ]; then
-  add_known_host "$RESERVE_IP"
-  if [ -r /dev/tty ]; then
-    echo
-    echo "Один и тот же публичный Ansible SSH-ключ должен быть добавлен на main и reserve:"
-    echo "  $SSH_KEY_PATH.pub -> /root/.ssh/authorized_keys"
-    if [ -r "$SSH_KEY_PATH.pub" ]; then
-      echo
-      cat "$SSH_KEY_PATH.pub"
-      echo
-    fi
-    ask_tty "Убедитесь, что ключ добавлен на оба VPS, затем нажмите Enter..." >/dev/null
+printf -v LAST_CLIENT_ID "client-%03d" "$CLIENT_COUNT"
+INSTALL_MTPROTO="$(normalize_yes_no "$INSTALL_MTPROTO" "Установить MTProto proxy для Telegram?")"
+INSTALL_SOCKS5="$(normalize_yes_no "$INSTALL_SOCKS5" "Установить SOCKS5 proxy для Telegram?")"
+
+
+  mapfile -t PUBLIC_IPS < <(python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["addresses"]))' <<<"$DISCOVERY")
+  printf 'Публичные IPv4 в ОС: %s\n' "${PUBLIC_IPS[*]:-нет}"
+  ADDITIONAL_IP="${VPN_ADDITIONAL_IPV4:-}"
+  if [ -z "$ADDITIONAL_IP" ] && yes_no "$(ask_tty 'Есть дополнительный публичный IP, прикреплённый у хостера, но ещё не добавленный в ОС? [y/N] ' || true)"; then
+    ADDITIONAL_IP="$(ask_tty 'Дополнительный публичный IPv4: ')"
   fi
+  if [ -n "$ADDITIONAL_IP" ]; then
+    validate_ipv4 "$ADDITIONAL_IP"
+    python3 -c 'import ipaddress,sys; a=ipaddress.IPv4Address(sys.argv[1]); sys.exit(0 if a.is_global and not a.is_multicast else "IPv4 must be public unicast")' "$ADDITIONAL_IP"
+    if [[ " ${PUBLIC_IPS[*]} " != *" $ADDITIONAL_IP "* ]]; then PUBLIC_IPS+=("$ADDITIONAL_IP"); fi
+  fi
+  if [ "${#PUBLIC_IPS[@]}" -eq 0 ]; then echo 'No public IPv4 configured; NAT-only hosts require manual configuration.' >&2; exit 1; fi
+  ENTRY_IP="${VPN_ENTRY_IPV4:-$(state_value vpn_public_endpoint)}"
+  EXIT_IP="${VPN_EXIT_IPV4:-$(state_value vpn_exit_ipv4)}"
+  ENTRY_IP="${ENTRY_IP:-$SERVER_IP}"
+  SPLIT="${VPN_SPLIT_IP:-}"
+  if [ -z "$SPLIT" ] && [ -n "$EXIT_IP" ] && [ "$EXIT_IP" != "$ENTRY_IP" ]; then SPLIT=yes; fi
+  if [ "${#PUBLIC_IPS[@]}" -ge 2 ]; then
+    if [ -z "$SPLIT" ]; then SPLIT="$(ask_tty 'Использовать разные IP для входа и выхода VPN? [y/N] ' || true)"; fi
+    if yes_no "$SPLIT"; then
+      printf 'Доступные IPv4: %s\n' "${PUBLIC_IPS[*]}"
+      if [ -z "${VPN_ENTRY_IPV4:-}" ]; then ENTRY_IP="$(ask_tty "Входной IPv4 [$ENTRY_IP]: " || true)"; ENTRY_IP="${ENTRY_IP:-$(state_value vpn_public_endpoint)}"; ENTRY_IP="${ENTRY_IP:-$SERVER_IP}"; fi
+      if [ -z "${VPN_EXIT_IPV4:-}" ]; then
+        DEFAULT_EXIT="$EXIT_IP"
+        if [ -z "$DEFAULT_EXIT" ]; then for ip in "${PUBLIC_IPS[@]}"; do if [ "$ip" != "$ENTRY_IP" ]; then DEFAULT_EXIT="$ip"; break; fi; done; fi
+        EXIT_IP="$(ask_tty "Выходной IPv4 [$DEFAULT_EXIT]: " || true)"; EXIT_IP="${EXIT_IP:-$DEFAULT_EXIT}"
+      fi
+      if [ "$ENTRY_IP" = "$EXIT_IP" ]; then echo 'Entry and exit must differ for split mode.' >&2; exit 1; fi
+    else
+      ENTRY_IP="$SERVER_IP"
+      EXIT_IP=""
+    fi
+  else
+    ENTRY_IP="${PUBLIC_IPS[0]}"
+    EXIT_IP=""
+  fi
+  for ip in "$ENTRY_IP" ${EXIT_IP:+"$EXIT_IP"}; do
+    validate_ipv4 "$ip"
+    if [[ " ${PUBLIC_IPS[*]} " != *" $ip "* ]]; then echo "IPv4 is not available: $ip" >&2; exit 1; fi
+  done
+  DISABLE_IPV6="${VPN_DISABLE_IPV6:-$(state_value vpn_disable_ipv6)}"
+  if [ -z "$DISABLE_IPV6" ]; then DISABLE_IPV6="$(ask_tty 'Отключить IPv6 для пользовательского VPN-трафика? [Y/n] ' || true)"; DISABLE_IPV6="${DISABLE_IPV6:-yes}"; fi
+  DISABLE_IPV6="$(normalize_yes_no "$DISABLE_IPV6" '')"
+  export ENTRY_IP EXIT_IP DISABLE_IPV6 ADDITIONAL_IP CLIENT_COUNT INSTALL_MTPROTO INSTALL_SOCKS5
+  python3 - "$NETWORK_VARS_FILE" <<'PY'
+import json, os, sys
+data = dict(vpn_public_endpoint=os.environ['ENTRY_IP'], vpn_exit_ipv4=os.environ['EXIT_IP'],
+            vpn_disable_ipv6=os.environ['DISABLE_IPV6']=='true', vpn_additional_ipv4=os.environ['ADDITIONAL_IP'],
+            vpn_client_count=int(os.environ['CLIENT_COUNT']), install_mtproto=os.environ['INSTALL_MTPROTO']=='true',
+            install_socks5=os.environ['INSTALL_SOCKS5']=='true')
+with open(sys.argv[1], 'w') as stream: json.dump(data, stream)
+PY
 fi
 
-cat <<EOF
-===== VPN DEPLOY =====
-Сервер:
-  роль: $SERVER_ROLE
-  IP: $SERVER_IP
-  main IP для monitoring: ${MAIN_IP:-не задан}
-  reserve IP: ${RESERVE_IP:-не задан}
-  Amnezia клиентов: $CLIENT_COUNT
-  MTProto proxy: $INSTALL_MTPROTO
-  SOCKS5 proxy: $INSTALL_SOCKS5
-  inventory: $INVENTORY_PATH
-
-Что произойдёт:
-  1. SSH/Ansible preflight
-  2. deploy playbooks/vpn-core.yml для выбранной роли
-  3. deploy monitoring layer
-  4. проверка результата с retry
-
-Пользователю не нужно руками указывать Ansible inventory:
-  scripts/deploy-server создаст inventories/managed/hosts.yml внутри репозитория.
-===== КОНЕЦ ВВОДНЫХ =====
-EOF
-
-DEPLOY_STARTED_AT="$(date +%s)"
-
-echo
-echo "==> [1/4] Preflight"
-"$ANSIBLE_BIN" --version | head -n 1
-"$ANSIBLE_BIN" -i "$INVENTORY_PATH" all -m ping
-"$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/preflight.yml
-
-echo
-echo "==> [2/4] Deploy VPN core"
-VPN_CORE_LIMIT_ARGS=()
-if [ "$SERVER_ROLE" = "reserve" ]; then
-  VPN_CORE_LIMIT_ARGS=(--limit vpn-reserve)
+write_inventory
+chmod 600 "$INVENTORY_PATH"
+if [ "$PHASE" = all ] || [ "$PHASE" = core ]; then
+  echo '==> Фаза 1: VPN'
+  "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" --limit "$TARGET" playbooks/vpn-core.yml -e "@$NETWORK_VARS_FILE"
+  # Copy all client artifacts before asking about monitoring. Partial copies are never published.
+  EXPORT_DIR="$PWD/exports/$SERVER_IP"
+  mkdir -p "$EXPORT_DIR"
+  chmod 700 "$PWD/exports" "$EXPORT_DIR"
+  umask 077
+  for name in amnezia-vpn-links.txt amneziawg-client-configs.txt client-links.txt xray-client-links.txt xray-experimental-client-links.txt xray-tun-client.json; do
+    ssh "${SSH_ARGS[@]}" "root@$SERVER_IP" "cat /var/lib/vpn/$name" > "$EXPORT_DIR/$name.tmp"
+    mv "$EXPORT_DIR/$name.tmp" "$EXPORT_DIR/$name"
+  done
+  if [ "$INSTALL_MTPROTO" = true ] || [ "$INSTALL_SOCKS5" = true ]; then
+    ssh "${SSH_ARGS[@]}" "root@$SERVER_IP" 'cat /var/lib/vpn/telegram-proxy-links.txt' > "$EXPORT_DIR/telegram-proxy-links.txt"
+  fi
+  echo "VPN готов за $(format_duration "$(( $(date +%s) - DEPLOY_STARTED_AT ))"). Клиентские данные: $EXPORT_DIR"
+  cat "$EXPORT_DIR/amnezia-vpn-links.txt" "$EXPORT_DIR/xray-client-links.txt" "$EXPORT_DIR/xray-experimental-client-links.txt"
+  if [ -f "$EXPORT_DIR/telegram-proxy-links.txt" ]; then cat "$EXPORT_DIR/telegram-proxy-links.txt"; fi
+  echo "Конфигурации AmneziaWG: $EXPORT_DIR/amneziawg-client-configs.txt"
+  echo "Xray через TUN (sing-box, весь IPv4/IPv6 в VPN): $EXPORT_DIR/xray-tun-client.json"
 fi
-"$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/vpn-core.yml "${VPN_CORE_LIMIT_ARGS[@]}" \
-  -e "vpn_client_count=$CLIENT_COUNT install_mtproto=$INSTALL_MTPROTO install_socks5=$INSTALL_SOCKS5"
 
-wait_for_ansible_hosts "После VPN core"
-
-echo
-echo "==> [3/4] Deploy monitoring layer"
+RUN_MONITORING=false
+if [ "$PHASE" = monitoring ]; then RUN_MONITORING=true; fi
+if [ "$PHASE" = all ]; then
+  CONTINUE="${VPN_INSTALL_MONITORING:-}"
+  if [ -z "$CONTINUE" ]; then CONTINUE="$(ask_tty 'VPN готов, ключи выданы. Продолжить установку мониторинга и дополнительных компонентов? [Y/n] ' || true)"; CONTINUE="${CONTINUE:-yes}"; fi
+  if yes_no "$CONTINUE"; then RUN_MONITORING=true; fi
+fi
+if [ "$RUN_MONITORING" = true ]; then
+  configure_monitoring
+  write_inventory
+  if [ -n "$MAIN_IP" ]; then add_known_host "$MAIN_IP"; fi
+  if [ -n "$RESERVE_IP" ]; then add_known_host "$RESERVE_IP"; fi
 if [ "$SERVER_ROLE" = "main" ]; then
   MONITORING_EXTRA_VARS_FILE="$(mktemp)"
   export TELEGRAM_ALERTS TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID GRAFANA_ADMIN_PASSWORD GRAFANA_BASIC_AUTH_PASSWORD ALERTMANAGER_BASIC_AUTH_PASSWORD GRAFANA_DEB_PATH
@@ -422,6 +437,9 @@ import os
 import sys
 
 data = {
+    "monitoring_preserve_grafana_auth": not bool(os.environ.get("VPN_GRAFANA_BASIC_AUTH_PASSWORD")),
+    "monitoring_preserve_alertmanager_auth": not bool(os.environ.get("VPN_ALERTMANAGER_BASIC_AUTH_PASSWORD")),
+    "monitoring_preserve_prometheus_auth": not bool(os.environ.get("VPN_GRAFANA_BASIC_AUTH_PASSWORD")),
     "monitoring_alertmanager_telegram_enabled": os.environ["TELEGRAM_ALERTS"] == "true",
     "monitoring_alertmanager_telegram_bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
     "monitoring_alertmanager_telegram_chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""),
@@ -435,6 +453,7 @@ with open(sys.argv[1], "w") as fh:
 PY
   chmod 600 "$MONITORING_EXTRA_VARS_FILE"
   "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/monitoring.yml -e "@$MONITORING_EXTRA_VARS_FILE"
+  echo "Grafana: https://$SERVER_IP/ ; Alertmanager: https://$SERVER_IP:9443/ ; Prometheus: https://$SERVER_IP:9445/ (self-signed TLS, Basic Auth)"
 else
   if [ -n "$MAIN_IP" ]; then
     "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/connect-reserve-monitoring.yml
@@ -443,70 +462,14 @@ else
   fi
 fi
 
-echo
-echo "==> [4/4] Проверка результата"
-for attempt in $(seq 1 "$CHECK_ATTEMPTS"); do
-  echo "Проверка $attempt/$CHECK_ATTEMPTS"
-  if "$ANSIBLE_BIN" -i "$INVENTORY_PATH" all -m ping && "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/preflight.yml; then
-    DEPLOY_FINISHED_AT="$(date +%s)"
-    DEPLOY_DURATION_SECONDS=$((DEPLOY_FINISHED_AT - DEPLOY_STARTED_AT))
-    DEPLOY_DURATION="$(format_duration "$DEPLOY_DURATION_SECONDS")"
-    if [ "$INSTALL_MTPROTO" = true ] || [ "$INSTALL_SOCKS5" = true ]; then
-      PROXY_LINKS="$(ssh -i "$SSH_KEY_PATH" -o BatchMode=yes "root@$SERVER_IP" \
-        "cat /var/lib/vpn/telegram-proxy-links.txt")"
-    else
-      PROXY_LINKS="MTProto и SOCKS5 не выбраны."
-    fi
-    cat <<EOF
-
-===== ИТОГ DEPLOY =====
-Сервер:
-  роль: $SERVER_ROLE
-  IP: $SERVER_IP
-  main IP для monitoring: ${MAIN_IP:-не задан}
-  reserve IP: ${RESERVE_IP:-не задан}
-  Amnezia клиентов: $CLIENT_COUNT
-  MTProto proxy: $INSTALL_MTPROTO (TCP/9444)
-  SOCKS5 proxy: $INSTALL_SOCKS5 (TCP/1080)
-  inventory: $INVENTORY_PATH
-
-Deploy завершён.
-Проверка результата успешна.
-Время развёртывания: $DEPLOY_DURATION
-
-Развернули:
-  Native AmneziaWG: awg0 via awg-quick, UDP/443
-  DNS для VPN-клиентов: Unbound на 10.8.0.1 и fd00:8::1
-  Резервный канал: Xray VLESS Reality, TCP/8443 xhttp и TCP/8444 tcp
-  Firewall/UFW + fail2ban
-  Клиенты AmneziaVPN/AmneziaWG: $CLIENT_COUNT штук
-  Monitoring agent: node_exporter + vpn-custom-exporter
-  $MONITORING_STACK_SUMMARY
-
-Клиентские артефакты на VPS:
-  /var/lib/vpn/amnezia-vpn-links.txt       # $CLIENT_COUNT ссылок vpn://
-  /var/lib/vpn/amneziawg-client-configs.txt # $CLIENT_COUNT .awg.conf подряд
-  /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/$LAST_CLIENT_ID.awg.conf
-  /var/lib/vpn/client-links.txt             # индекс экспортов + Xray/VLESS links
-  /var/lib/vpn/telegram-proxy-links.txt     # Telegram proxy links, если выбраны
-
-Telegram-ссылки:
-$PROXY_LINKS
-
-Следующий этап:
-  $GRAFANA_ACCESS_SUMMARY
-  $ALERTMANAGER_ACCESS_SUMMARY
-  $PROMETHEUS_ACCESS_SUMMARY
-===== КОНЕЦ ИТОГА =====
-EOF
-    exit 0
-  fi
-
-  if [ "$attempt" -lt "$CHECK_ATTEMPTS" ]; then
-    echo "Проверка не прошла, повтор через $CHECK_DELAY_SECONDS секунд..."
-    sleep "$CHECK_DELAY_SECONDS"
-  fi
-done
-
-echo "Deploy выполнен, но итоговая проверка не прошла за $CHECK_ATTEMPTS попыток." >&2
-exit 1
+fi
+if [ "$PHASE" = exporter ]; then
+  if [ -n "$MAIN_IP" ]; then add_known_host "$MAIN_IP"; fi
+  "$ANSIBLE_PLAYBOOK_BIN" -i "$INVENTORY_PATH" playbooks/xray-exporter.yml -e "xray_exporter_target=$TARGET"
+fi
+HARDEN="${VPN_DISABLE_SSH_PASSWORD:-}"
+if [ -z "$HARDEN" ]; then HARDEN="$(ask_tty 'Отключить вход по SSH с паролем? [y/N] ' || true)"; fi
+if yes_no "$HARDEN"; then bash scripts/ssh-harden "$INVENTORY_PATH" "$TARGET" "$SERVER_IP"; fi
+echo "Готово. Время: $(format_duration "$(( $(date +%s) - DEPLOY_STARTED_AT ))")."
+echo "Позднее: scripts/deploy-server --phase monitoring $SERVER_ROLE $SERVER_IP"
+echo "Только Xray-exporter: scripts/deploy-server --phase exporter $SERVER_ROLE $SERVER_IP"

@@ -1,0 +1,18 @@
+[Unit]
+Description=Read-only Xray TCP connection observer
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/xray-exporter
+Restart=on-failure
+User=root
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

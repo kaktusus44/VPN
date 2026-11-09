@@ -1,15 +1,4 @@
 ---
-- name: Install Xray installer dependencies
-  ansible.builtin.apt:
-    name:
-      - curl
-      - unzip
-      - ca-certificates
-      - openssl
-    state: present
-    update_cache: true
-    lock_timeout: 1200
-
 - name: Check existing Xray service command
   ansible.builtin.command: systemctl show xray -p ExecStart --value
   register: xray_existing_execstart
@@ -102,14 +91,11 @@
       RestartPreventExitStatus=23
       LimitNPROC=infinity
       LimitNOFILE=infinity
+      {{ 'RestrictAddressFamilies=AF_INET AF_UNIX AF_NETLINK' if vpn_disable_ipv6 | default(false) | bool else '' }}
 
       [Install]
       WantedBy=multi-user.target
   notify: Restart xray
-
-- name: Reload systemd after installing managed Xray service
-  ansible.builtin.systemd:
-    daemon_reload: true
 
 - name: Generate Xray client UUID
   ansible.builtin.shell: "/usr/local/bin/xray uuid > /var/lib/vpn/client-001.xray.uuid"
@@ -224,11 +210,11 @@
     owner: root
     group: root
     mode: "0600"
+    validate: /usr/local/bin/xray run -test -config %s
   notify: Restart xray
 
-- name: Validate Xray config
-  ansible.builtin.command: /usr/local/bin/xray run -test -config /usr/local/etc/xray/config.json
-  changed_when: false
+- name: Apply Xray unit and configuration changes once
+  ansible.builtin.meta: flush_handlers
 
 - name: Enable Xray
   ansible.builtin.systemd:

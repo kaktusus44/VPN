@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import base64
 import json
+import os
 from pathlib import Path
 import secrets
 import subprocess
+import tempfile
 import zlib
 
 
@@ -19,6 +21,7 @@ VPN_PUBLIC_ENDPOINT = "{{ vpn_public_endpoint }}"
 ENDPOINT = "{{ vpn_public_endpoint }}:{{ awg_port }}"
 EXT_IFACE = "{{ ansible_default_ipv4.interface }}"
 ENABLE_IPV6 = {{ 'True' if vpn_enable_ipv6 | bool else 'False' }}
+BLOCK_IPV6 = {{ 'True' if vpn_disable_ipv6 | default(false) | bool else 'False' }}
 DNS_IPV4 = "{{ unbound_ipv4_listen }}"
 DNS_IPV6 = "{{ unbound_ipv6_listen }}"
 AMNEZIA_VPN_LINKS = Path("{{ export_amnezia_vpn_links_path }}")
@@ -46,8 +49,18 @@ def write_if_changed(path, content, mode=0o600):
     path.parent.mkdir(parents=True, exist_ok=True)
     old = path.read_text() if path.exists() else None
     if old != content:
-        path.write_text(content)
-        path.chmod(mode)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                temporary.chmod(mode)
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         return True
     path.chmod(mode)
     return False
@@ -216,7 +229,7 @@ def load_obfuscation_params():
         PARAMS_FILE.write_text(json.dumps(params, indent=2, sort_keys=True) + "\n")
         PARAMS_FILE.chmod(0o600)
     PARAMS_FILE.chmod(0o600)
-    return params, params_changed
+    return dict(sorted(params.items())), params_changed
 
 
 def obfuscation_lines(params):
@@ -262,8 +275,8 @@ server_lines = [
     "ListenPort = {{ awg_port }}",
     f"PrivateKey = {server_private}",
     *obfuscation_lines(obfuscation),
-    "PostUp = iptables -t nat -A POSTROUTING -s {{ awg_ipv4_network }} -o " + EXT_IFACE + " -j MASQUERADE",
-    "PostDown = iptables -t nat -D POSTROUTING -s {{ awg_ipv4_network }} -o " + EXT_IFACE + " -j MASQUERADE",
+    "PostUp = iptables -t nat -A POSTROUTING -s {{ awg_ipv4_network }} -o " + EXT_IFACE + " -j {{ 'SNAT --to-source ' ~ vpn_exit_ipv4 if vpn_exit_ipv4 | default('') | length > 0 else 'MASQUERADE' }}",
+    "PostDown = iptables -t nat -D POSTROUTING -s {{ awg_ipv4_network }} -o " + EXT_IFACE + " -j {{ 'SNAT --to-source ' ~ vpn_exit_ipv4 if vpn_exit_ipv4 | default('') | length > 0 else 'MASQUERADE' }}",
     "",
 ]
 
@@ -288,9 +301,9 @@ for index in range(1, CLIENT_COUNT + 1):
     client_public = run(["awg", "pubkey"], stdin=client_private)
     ipv4 = f"10.8.0.{index + 1}/32"
     ipv6 = f"fd00:8::{index + 1}/128"
-    address = ipv4 + (f", {ipv6}" if ENABLE_IPV6 else "")
+    address = ipv4 + (f", {ipv6}" if ENABLE_IPV6 or BLOCK_IPV6 else "")
     dns = DNS_IPV4 + (f", {DNS_IPV6}" if ENABLE_IPV6 else "")
-    allowed_ips = "0.0.0.0/0" + (", ::/0" if ENABLE_IPV6 else "")
+    allowed_ips = "0.0.0.0/0" + (", ::/0" if ENABLE_IPV6 or BLOCK_IPV6 else "")
 
     server_lines.extend(
         [
@@ -327,7 +340,6 @@ for index in range(1, CLIENT_COUNT + 1):
     )
     client_index_lines.append(f"{client_id} {VPN_ROLE} amneziawg_config /var/lib/vpn/{client_id}.awg.conf")
 
-changed = write_if_changed(AWG_CONFIG, "\n".join(server_lines), mode=0o600) or changed
 changed = write_if_changed(AMNEZIAWG_CONFIGS, "\n".join(all_configs) + "\n", mode=0o600) or changed
 changed = write_if_changed(AMNEZIA_VPN_LINKS, "\n".join(vpn_links) + "\n", mode=0o600) or changed
 xray_block = ""
@@ -338,4 +350,24 @@ if CLIENT_LINKS.exists():
         xray_block = "\n" + existing_client_links[marker_index:].strip() + "\n"
 changed = write_if_changed(CLIENT_LINKS, "\n".join(client_index_lines) + "\n" + xray_block, mode=0o600) or changed
 
-print(f"changed={'true' if changed else 'false'} clients={CLIENT_COUNT} vpn_links={AMNEZIA_VPN_LINKS}")
+server_content = "\n".join(server_lines)
+previous_config = AWG_CONFIG.read_text() if AWG_CONFIG.exists() else None
+server_changed = previous_config != server_content
+if server_changed and previous_config is not None:
+    # Execute OLD PostDown before replacing NAT rules; restore it if migration fails.
+    run(["systemctl", "stop", "awg-quick@{{ awg_interface }}"])
+    try:
+        write_if_changed(AWG_CONFIG, server_content)
+        run(["systemctl", "start", "awg-quick@{{ awg_interface }}"])
+    except Exception:
+        # If startup partially created the link, ask awg-quick to clean it first.
+        subprocess.run(["systemctl", "stop", "awg-quick@{{ awg_interface }}"], check=False)
+        write_if_changed(AWG_CONFIG, previous_config)
+        run(["systemctl", "reset-failed", "awg-quick@{{ awg_interface }}"])
+        run(["systemctl", "start", "awg-quick@{{ awg_interface }}"])
+        raise
+elif server_changed:
+    write_if_changed(AWG_CONFIG, server_content)
+changed = changed or server_changed
+
+print(f"changed={'true' if changed else 'false'} server_changed={'true' if server_changed else 'false'} clients={CLIENT_COUNT} vpn_links={AMNEZIA_VPN_LINKS}")

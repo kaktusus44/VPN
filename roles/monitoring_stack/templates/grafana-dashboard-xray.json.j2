@@ -1,0 +1,11 @@
+{
+  "uid": "vpn-xray-connections", "title": "VPN / Xray connections", "schemaVersion": 39,
+  "version": 1, "refresh": "30s", "time": {"from": "now-1h", "to": "now"},
+  "tags": ["vpn", "xray"],
+  "panels": [
+    {"id": 1, "title": "Established inbound TCP connections", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}, "datasource": "Prometheus", "targets": [{"refId": "A", "expr": "xray_tcp_connections_total_current", "legendFormat": "{{ '{{server}}' }}"}]},
+    {"id": 2, "title": "Observer health (1 = healthy)", "type": "stat", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}, "datasource": "Prometheus", "targets": [{"refId": "A", "expr": "xray_observer_up", "instant": true}]},
+    {"id": 3, "title": "Active client IP / ASN / provider (TCP sockets, not unique users)", "type": "table", "gridPos": {"h": 12, "w": 24, "x": 0, "y": 8}, "datasource": "Prometheus", "targets": [{"refId": "A", "expr": "xray_tcp_connections > 0", "instant": true, "format": "table"}]},
+    {"id": 4, "title": "Connections by provider", "type": "timeseries", "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20}, "datasource": "Prometheus", "targets": [{"refId": "A", "expr": "sum by (provider) (xray_tcp_connections)", "legendFormat": "{{ '{{provider}}' }}"}]}
+  ]
+}

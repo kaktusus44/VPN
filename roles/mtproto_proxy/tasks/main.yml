@@ -1,21 +1,4 @@
 ---
-- name: Check whether Docker is already installed
-  ansible.builtin.command: docker --version
-  register: mtproto_docker_check
-  changed_when: false
-  failed_when: false
-  when: install_mtproto | bool
-
-- name: Install Docker for MTProto proxy when missing
-  ansible.builtin.apt:
-    name: docker.io
-    state: present
-    update_cache: true
-    lock_timeout: 1200
-  when:
-    - install_mtproto | bool
-    - mtproto_docker_check.rc != 0
-
 - name: Enable Docker
   ansible.builtin.systemd:
     name: docker
@@ -43,16 +26,26 @@
   when: install_mtproto | bool
   no_log: true
 
-- name: Pull MTProto proxy image
-  ansible.builtin.command: docker pull telegrammessenger/proxy:latest
+- name: Inspect existing MTProto proxy container
+  ansible.builtin.command: docker inspect mtproto-proxy
   when: install_mtproto | bool
-  changed_when: false
-
-- name: Replace existing MTProto proxy container
-  ansible.builtin.command: docker rm -f mtproto-proxy
-  when: install_mtproto | bool
+  register: mtproto_container
   changed_when: false
   failed_when: false
+  no_log: true
+
+- name: Decide whether MTProto settings changed
+  ansible.builtin.set_fact:
+    mtproto_recreate: "{{ mtproto_container.rc != 0 or ('SECRET=' ~ mtproto_secret) not in ((mtproto_container.stdout | from_json)[0].Config.Env | default([])) or (mtproto_container.stdout | from_json)[0].HostConfig.PortBindings['443/tcp'][0].HostPort != mtproto_port | string }}"
+  when: install_mtproto | bool
+  no_log: true
+
+- name: Replace MTProto proxy container only when settings changed
+  ansible.builtin.command: docker rm -f mtproto-proxy
+  when:
+    - install_mtproto | bool
+    - mtproto_recreate | bool
+    - mtproto_container.rc == 0
 
 - name: Run MTProto proxy container
   ansible.builtin.command:
@@ -71,8 +64,17 @@
       - --env
       - WORKERS=2
       - telegrammessenger/proxy:latest
-  when: install_mtproto | bool
+  when:
+    - install_mtproto | bool
+    - mtproto_recreate | bool
   no_log: true
+
+- name: Ensure unchanged MTProto proxy is running
+  ansible.builtin.command: docker start mtproto-proxy
+  when:
+    - install_mtproto | bool
+    - not (mtproto_recreate | bool)
+    - not ((mtproto_container.stdout | from_json)[0].State.Running | bool)
 
 - name: Remove MTProto proxy when disabled
   ansible.builtin.shell: command -v docker >/dev/null 2>&1 && docker rm -f mtproto-proxy || true

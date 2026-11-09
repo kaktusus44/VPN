@@ -9,6 +9,8 @@
   roles:
     - role: monitoring_agent
       when: vpn_server_role == "reserve"
+    - role: xray_exporter
+      when: vpn_server_role == "reserve"
 
 - name: Update main Prometheus scrape targets
   hosts: vpn_servers

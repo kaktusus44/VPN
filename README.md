@@ -27,18 +27,28 @@ cd ~/VPN
 scripts/deploy-server
 ```
 
-Скрипт сам спросит роль (`main` или `reserve`), IP сервера, сколько Amnezia
-ключей генерить и нужно ли установить MTProto и SOCKS5 proxy. Для `main` он
-также спросит, есть ли уже `reserve`-нода для централизованного мониторинга.
-Для `reserve` он спросит IP `main`, чтобы сразу
-подключить метрики reserve к Prometheus на `main`. Для `main` скрипт также
-спросит, подключать ли Telegram alerts, и пароль администратора Grafana. Если
-количество не ввести, будет 100. Он сам создаёт Ansible inventory, запускает VPN
-core, monitoring layer и проверяет результат. Grafana на `main` публикуется
-наружу через nginx HTTPS с Basic Auth. Alertmanager на `main` публикуется наружу
-через nginx HTTPS с Basic Auth на порту `9443`. Prometheus на `main` публикуется
-наружу через nginx HTTPS с Basic Auth на порту `9445`. В итоговом выводе скрипт
-показывает, сколько заняло развёртывание.
+Скрипт спрашивает роль (`main`/`reserve`), IP, число Amnezia-ключей и дополнительные proxy.
+Перед установкой можно добавить IPv4 от хостера, выбрать разные входной/выходной IP
+и отключить IPv6-выход VPN (по умолчанию включена блокировка).
+
+Сначала устанавливается только VPN и выдаются клиентские ссылки. Копии конфигураций
+сохраняются в `exports/<IP>/`. Затем скрипт предлагает установить мониторинг:
+отказ успешно завершает первую фазу. В конце предлагается безопасно отключить
+SSH-пароль после проверки отдельного входа по ключу.
+
+```bash
+scripts/deploy-server --phase core main 1.2.3.4
+scripts/deploy-server --phase monitoring main 1.2.3.4
+scripts/deploy-server --phase exporter main 1.2.3.4
+```
+
+Подробности, параметры автоматизации и ограничения клиентского IPv6:
+[Две фазы установки](docs/two-phase-install.md).
+
+Мониторинг main включает Prometheus, Alertmanager, Grafana и отдельный Xray-exporter.
+Grafana доступна через nginx HTTPS + Basic Auth; Alertmanager — на порту `9443`,
+Prometheus — на `9445`. У Xray-exporter отдельный дашборд с TCP-соединениями,
+клиентскими IP, ASN и организациями провайдеров. UUID может быть общим.
 
 Если proxy выбраны, итоговый вывод содержит готовые Telegram-ссылки вида
 `https://t.me/proxy?...` и `https://t.me/socks?...`. Они также сохраняются на
@@ -47,13 +57,13 @@ VPS в `/var/lib/vpn/telegram-proxy-links.txt`. MTProto по умолчанию 
 пользователя `proxyuser`. Секреты генерируются на VPS и сохраняются при обычном
 повторном deploy.
 
-Можно без вопросов:
+Запуск с заранее заданным числом клиентов:
 
 ```bash
 VPN_CLIENT_COUNT=100 scripts/deploy-server main 1.2.3.4
 ```
 
-Запуск с обоими Telegram proxy без дополнительных вопросов:
+Запуск с обоими Telegram proxy:
 
 ```bash
 VPN_CLIENT_COUNT=100 \
@@ -65,6 +75,7 @@ scripts/deploy-server main 1.2.3.4
 Для полностью безвопросного `main` deploy с алертами:
 
 ```bash
+VPN_NONINTERACTIVE=1 VPN_INSTALL_MONITORING=yes \
 VPN_CLIENT_COUNT=100 \
 VPN_TELEGRAM_ALERTS=true \
 VPN_TELEGRAM_BOT_TOKEN='<bot-token>' \
@@ -94,7 +105,7 @@ scripts/destroy-server
 
 Скрипт сам спросит роль и IP сервера, затем попросит ввести `DESTROY`.
 
-Можно без вопросов:
+Запуск с заранее заданным числом клиентов:
 
 ```bash
 VPN_RESET_CONFIRM=DESTROY scripts/destroy-server main 1.2.3.4

@@ -1,11 +1,4 @@
 ---
-- name: Install Unbound
-  ansible.builtin.apt:
-    name: unbound
-    state: present
-    update_cache: true
-    lock_timeout: 1200
-
 - name: Render VPN-only Unbound config
   ansible.builtin.template:
     src: vpn.conf.j2
@@ -13,11 +6,8 @@
     owner: root
     group: root
     mode: "0644"
+    validate: /usr/sbin/unbound-checkconf %s
   notify: Restart unbound
-
-- name: Validate Unbound config
-  ansible.builtin.command: unbound-checkconf
-  changed_when: false
 
 - name: Enable Unbound
   ansible.builtin.systemd:

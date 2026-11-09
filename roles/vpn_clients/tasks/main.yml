@@ -107,3 +107,10 @@
       - "AmneziaVPN vpn:// links created: {{ export_amnezia_vpn_links_path }}"
       - "Native AmneziaWG configs created: /var/lib/vpn/client-001.awg.conf .. /var/lib/vpn/client-{{ '%03d' | format(vpn_client_count | int) }}.awg.conf"
       - "Use root SSH to read the export file; secrets are not printed in Ansible output."
+
+- name: Export full tunnel Xray client for sing-box 1.12.x
+  ansible.builtin.template:
+    src: xray-tun-client.json.j2
+    dest: /var/lib/vpn/xray-tun-client.json
+    mode: "0600"
+  no_log: true

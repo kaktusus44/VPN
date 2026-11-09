@@ -78,8 +78,19 @@
     to_ip: any
   when:
     - vpn_enable_ipv6 | bool
+    - not (vpn_disable_ipv6 | default(false) | bool)
     - ansible_default_ipv6.interface is defined
     - ansible_default_ipv6.interface | length > 0
+
+- name: Block tunneled IPv6 before any existing routed allow rules
+  community.general.ufw:
+    rule: deny
+    route: true
+    insert: 1
+    interface_in: "{{ awg_interface }}"
+    from_ip: "::/0"
+    to_ip: "::/0"
+    delete: "{{ not (vpn_disable_ipv6 | default(false) | bool) }}"
 
 - name: Enable UFW
   community.general.ufw:

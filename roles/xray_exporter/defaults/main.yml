@@ -1,0 +1,6 @@
+---
+xray_exporter_port: 9188
+xray_exporter_interval: 15
+xray_exporter_listen: "{{ '127.0.0.1' if vpn_server_role | default('main') == 'main' else '0.0.0.0' }}"
+xray_exporter_asn_path: /var/lib/vpn-asn/ip2asn.tsv.gz
+xray_exporter_max_series: 10000

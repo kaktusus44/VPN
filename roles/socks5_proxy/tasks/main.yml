@@ -1,12 +1,4 @@
 ---
-- name: Install Dante SOCKS5 server
-  ansible.builtin.apt:
-    name: dante-server
-    state: present
-    update_cache: true
-    lock_timeout: 1200
-  when: install_socks5 | bool
-
 - name: Generate SOCKS5 password once
   ansible.builtin.shell: umask 077 && openssl rand -hex 12 > /var/lib/vpn/socks5-password
   args:

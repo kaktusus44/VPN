@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Read-only TCP observation; UUIDs and Xray traffic processing are untouched."""
+from bisect import bisect_right
+from collections import Counter
+import gzip
+import ipaddress
+import json
+from pathlib import Path
+import re
+import subprocess
+import threading
+import time
+from prometheus_client import start_http_server, REGISTRY
+from prometheus_client.core import GaugeMetricFamily
+
+ASN_PATH = Path({{ xray_exporter_asn_path | to_json }})
+CONFIG = Path('/usr/local/etc/xray/config.json')
+INTERVAL = {{ xray_exporter_interval | int }}
+MAX_SERIES = {{ xray_exporter_max_series | int }}
+
+
+class Observer:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.snapshot = ({}, 0, 0, 0, 0)
+        self.starts, self.ranges, self.mtime = [], [], None
+
+    def reload_asn(self):
+        mtime = ASN_PATH.stat().st_mtime_ns if ASN_PATH.exists() else None
+        if mtime == self.mtime:
+            return
+        rows = []
+        if mtime:
+            with gzip.open(ASN_PATH, 'rt') as stream:
+                for line in stream:
+                    fields = line.rstrip('\n').split('\t', 4)
+                    if len(fields) == 5:
+                        rows.append((int(fields[0]), int(fields[1]), fields[2], fields[4]))
+        rows.sort()
+        self.starts = [row[0] for row in rows]
+        self.ranges, self.mtime = rows, mtime
+
+    def provider(self, address):
+        ip = ipaddress.ip_address(address)
+        if ip.version != 4:
+            return 'unknown', 'unknown'
+        value = int(ip)
+        idx = bisect_right(self.starts, value) - 1
+        if idx >= 0 and value <= self.ranges[idx][1]:
+            return self.ranges[idx][2:]
+        return 'unknown', 'unknown'
+
+    @staticmethod
+    def endpoint(value):
+        host, port = value.rsplit(':', 1)
+        ip = ipaddress.ip_address(host.strip('[]').split('%', 1)[0])
+        if getattr(ip, 'ipv4_mapped', None):
+            ip = ip.ipv4_mapped
+        return str(ip), int(port)
+
+    def sample(self):
+        self.reload_asn()
+        config = json.loads(CONFIG.read_text())
+        ports = {int(item['port']) for item in config.get('inbounds', [])
+                 if item.get('protocol') == 'vless'}
+        pid = int(subprocess.check_output(
+            ['systemctl', 'show', 'xray', '-p', 'MainPID', '--value'], text=True, timeout=5).strip())
+        if pid <= 0 or not ports:
+            raise RuntimeError('Xray is not running or no VLESS listeners')
+        output = subprocess.check_output(
+            ['ss', '-H', '-tnp', 'state', 'established'], text=True, timeout=5)
+        counts = Counter()
+        total = dropped = 0
+        for line in output.splitlines():
+            if not re.search(r'\bpid=' + str(pid) + r',', line):
+                continue
+            fields = line.split()
+            _, port = self.endpoint(fields[2])
+            if port not in ports:
+                continue
+            client_ip, _ = self.endpoint(fields[3])
+            asn, provider = self.provider(client_ip)
+            key = (client_ip, asn, provider, str(port))
+            total += 1
+            if key in counts or len(counts) < MAX_SERIES:
+                counts[key] += 1
+            else:
+                dropped += 1
+        return counts, total, dropped
+
+    def update(self):
+        while True:
+            try:
+                counts, total, dropped = self.sample()
+                snapshot = (counts, total, 1, time.time(), dropped)
+            except Exception as exc:
+                print(f'Observation failed: {exc}', flush=True)
+                snapshot = ({}, 0, 0, 0, 0)
+            with self.lock:
+                self.snapshot = snapshot
+            time.sleep(INTERVAL)
+
+    def collect(self):
+        with self.lock:
+            counts, total, ok, timestamp, dropped = self.snapshot
+        connections = GaugeMetricFamily('xray_tcp_connections',
+            'Established inbound TCP sockets; not authenticated users.',
+            labels=['client_ip', 'asn', 'provider', 'inbound_port'])
+        for labels, count in counts.items():
+            connections.add_metric(labels, count)
+        yield connections
+        for name, description, value in [
+            ('xray_tcp_connections_total_current', 'Current inbound TCP socket count.', total),
+            ('xray_observer_up', 'Whether the last observation succeeded.', ok),
+            ('xray_observer_last_success_timestamp_seconds', 'Last successful sample.', timestamp),
+            ('xray_observer_dropped_connections', 'Connections omitted by series limit.', dropped),
+            ('xray_asn_database_loaded', 'Local ASN database is loaded.', int(bool(self.ranges)))]:
+            metric = GaugeMetricFamily(name, description)
+            metric.add_metric([], value)
+            yield metric
+
+
+if __name__ == '__main__':
+    observer = Observer()
+    REGISTRY.register(observer)
+    threading.Thread(target=observer.update, daemon=True).start()
+    start_http_server({{ xray_exporter_port | int }}, addr={{ xray_exporter_listen | to_json }})
+    threading.Event().wait()

@@ -1,17 +1,4 @@
 ---
-- name: Install AmneziaWG repository prerequisites
-  ansible.builtin.apt:
-    name:
-      - software-properties-common
-      - ca-certificates
-      - curl
-      - gnupg
-      - gnupg2
-      - iptables
-    state: present
-    update_cache: true
-    lock_timeout: 1200
-
 - name: Install kernel headers for AmneziaWG DKMS when available
   ansible.builtin.apt:
     name: "linux-headers-{{ ansible_kernel }}"
@@ -34,7 +21,7 @@
     owner: root
     group: root
     mode: "0644"
-    force: true
+    force: false
   register: amneziawg_ppa_key
   until: amneziawg_ppa_key is succeeded
   retries: 5
@@ -43,7 +30,8 @@
 - name: Dearmor AmneziaWG PPA signing key
   ansible.builtin.command:
     cmd: gpg --dearmor --yes -o /etc/apt/keyrings/amneziawg.gpg /etc/apt/keyrings/amneziawg.asc
-  changed_when: amneziawg_ppa_key.changed
+  args:
+    creates: /etc/apt/keyrings/amneziawg.gpg
 
 - name: Remove legacy add-apt-repository source list
   ansible.builtin.file:
@@ -60,14 +48,6 @@
       deb [signed-by=/etc/apt/keyrings/amneziawg.gpg] https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu {{ ansible_distribution_release }} main
   register: amneziawg_ppa_source
 
-- name: Refresh apt cache after adding AmneziaWG PPA
-  ansible.builtin.apt:
-    update_cache: true
-    cache_valid_time: 0
-    update_cache_retries: 5
-    update_cache_retry_max_delay: 20
-    lock_timeout: 1200
-
 - name: Install native AmneziaWG packages
   ansible.builtin.apt:
     name:
@@ -76,6 +56,7 @@
       - iptables
     state: present
     update_cache: true
+    cache_valid_time: "{{ 0 if amneziawg_ppa_source.changed else 3600 }}"
     lock_timeout: 1200
 
 - name: Load AmneziaWG kernel module
@@ -152,7 +133,6 @@
   ansible.builtin.command: /usr/local/sbin/vpn-generate-amnezia-clients
   register: amnezia_client_generation
   changed_when: "'changed=true' in amnezia_client_generation.stdout"
-  notify: Restart awg interface
 
 - name: Disable legacy wg-quick service for awg0
   ansible.builtin.systemd:

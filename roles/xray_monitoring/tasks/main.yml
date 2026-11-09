@@ -1,0 +1,46 @@
+---
+- name: Check existing Prometheus configuration
+  ansible.builtin.stat:
+    path: /etc/prometheus/prometheus.yml
+  register: xray_prometheus_file
+
+- name: Integrate exporter into existing Prometheus
+  when: xray_prometheus_file.stat.exists
+  block:
+    - name: Read Prometheus configuration
+      ansible.builtin.slurp:
+        src: /etc/prometheus/prometheus.yml
+      register: xray_prometheus_raw
+    - name: Collect sidecar scrape targets
+      ansible.builtin.set_fact:
+        xray_scrape_targets: "{{ xray_scrape_targets | default([]) + [{'targets': [('127.0.0.1' if item == inventory_hostname else hostvars[item].ansible_host) ~ ':' ~ (hostvars[item].xray_exporter_port | default(9188) | string)], 'labels': {'role': hostvars[item].vpn_server_role, 'server': item}}] }}"
+      loop: "{{ groups['vpn_servers'] | default([]) }}"
+    - name: Build exporter scrape job
+      ansible.builtin.set_fact:
+        xray_scrape_job:
+          job_name: xray-exporter
+          static_configs: "{{ xray_scrape_targets }}"
+        xray_prometheus_config: "{{ xray_prometheus_raw.content | b64decode | from_yaml }}"
+    - name: Add or update only the exporter job
+      ansible.builtin.copy:
+        dest: /etc/prometheus/prometheus.yml
+        owner: root
+        group: root
+        mode: "0644"
+        content: "{{ xray_prometheus_config | combine({'scrape_configs': (xray_prometheus_config.scrape_configs | default([]) | rejectattr('job_name', 'equalto', 'xray-exporter') | list) + [xray_scrape_job]}) | to_nice_yaml(indent=2, sort_keys=false) }}"
+        validate: /usr/bin/promtool check config %s
+      notify: Reload Prometheus for Xray
+
+- name: Check existing managed Grafana dashboard directory
+  ansible.builtin.stat:
+    path: /var/lib/grafana/dashboards/vpn
+  register: xray_grafana_directory
+
+- name: Install dedicated Xray dashboard in existing Grafana
+  ansible.builtin.template:
+    src: "{{ role_path }}/../monitoring_stack/templates/grafana-dashboard-xray.json.j2"
+    dest: /var/lib/grafana/dashboards/vpn/xray-connections.json
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  when: xray_grafana_directory.stat.isdir | default(false)

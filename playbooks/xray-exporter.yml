@@ -1,0 +1,16 @@
+---
+- name: Install read-only Xray exporter without touching Xray
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+  roles:
+    - role: xray_exporter
+      when: xray_exporter_target is not defined or inventory_hostname == xray_exporter_target
+
+- name: Connect the exporter to existing main monitoring
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+  roles:
+    - role: xray_monitoring
+      when: vpn_server_role == 'main'

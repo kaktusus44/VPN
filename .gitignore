@@ -8,4 +8,5 @@ __pycache__/
 *.pem
 clients/
 exports/
+inventories/managed/
 *.conf.private

@@ -1,0 +1,5 @@
+---
+- name: Reload Prometheus for Xray
+  ansible.builtin.systemd:
+    name: prometheus
+    state: reloaded

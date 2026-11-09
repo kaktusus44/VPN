@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+for script in scripts/*; do
+  [ -f "$script" ] || continue
+  if head -n 1 "$script" | grep -q 'bash'; then bash -n "$script"; fi
+done
+export ANSIBLE_ROLES_PATH="$PWD/roles"
+export ANSIBLE_CONFIG="$PWD/ansible.cfg"
+export ANSIBLE_LOCAL_TEMP=/tmp/vpn-ansible-check
+for playbook in playbooks/{vpn-core,monitoring,connect-reserve-monitoring,xray-exporter,ssh-harden}.yml; do
+  ansible-playbook -i inventories/test/hosts.yml --syntax-check "$playbook"
+done
+python3 -m unittest discover -s tests -v

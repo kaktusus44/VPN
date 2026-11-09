@@ -1,0 +1,89 @@
+---
+- name: Require active firewall before binding reserve metrics externally
+  ansible.builtin.command: ufw status
+  environment:
+    LC_ALL: C
+  register: xray_exporter_firewall
+  changed_when: false
+  failed_when: "'Status: active' not in xray_exporter_firewall.stdout"
+  when: xray_exporter_listen not in ['127.0.0.1', '::1']
+
+- name: Install sidecar dependencies in one transaction
+  ansible.builtin.apt:
+    name: [python3, python3-prometheus-client, iproute2, curl, gzip]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 1200
+
+- name: Load shared ASN updater settings
+  ansible.builtin.include_vars:
+    file: "{{ role_path }}/../monitoring_agent/defaults/main.yml"
+
+- name: Create local ASN directory
+  ansible.builtin.file:
+    path: "{{ vpn_custom_exporter_asn_state_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Install shared ASN updater and timer
+  ansible.builtin.template:
+    src: "{{ role_path }}/../monitoring_agent/templates/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {src: vpn-asn-update.j2, dest: /usr/local/bin/vpn-asn-update, mode: '0755'}
+    - {src: vpn-asn-update.service.j2, dest: /etc/systemd/system/vpn-asn-update.service, mode: '0644'}
+    - {src: vpn-asn-update.timer.j2, dest: /etc/systemd/system/vpn-asn-update.timer, mode: '0644'}
+  notify: Reload xray-exporter systemd
+
+- name: Fetch initial ASN database only when missing
+  ansible.builtin.command: /usr/local/bin/vpn-asn-update
+  args:
+    creates: "{{ vpn_custom_exporter_asn_table_path }}"
+
+- name: Install independent Xray observer
+  ansible.builtin.template:
+    src: xray-exporter.py.j2
+    dest: /usr/local/bin/xray-exporter
+    mode: "0700"
+  notify: Restart xray-exporter
+
+- name: Install independent sidecar service
+  ansible.builtin.template:
+    src: xray-exporter.service.j2
+    dest: /etc/systemd/system/xray-exporter.service
+    mode: "0644"
+  notify:
+    - Reload xray-exporter systemd
+    - Restart xray-exporter
+
+- name: Apply sidecar changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable sidecar and ASN timer
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: [xray-exporter, vpn-asn-update.timer]
+
+- name: Restrict remote scraping to main Prometheus
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ hostvars[item].ansible_host }}"
+    port: "{{ xray_exporter_port }}"
+    proto: tcp
+  loop: "{{ groups['vpn_servers'] | default([]) }}"
+  when:
+    - vpn_server_role != 'main'
+    - hostvars[item].vpn_server_role | default('') == 'main'
+
+- name: Check sidecar HTTP endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ xray_exporter_port }}/metrics"
+    return_content: true
+  register: xray_exporter_check
+  until: xray_exporter_check.status | default(0) == 200
+  retries: 3
+  delay: 2

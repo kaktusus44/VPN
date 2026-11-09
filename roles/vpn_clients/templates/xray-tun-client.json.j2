@@ -1,0 +1,11 @@
+{
+  "log": {"level": "warn"},
+  "dns": {"servers": [{"type": "udp", "tag": "vpn-dns", "server": "1.1.1.1", "detour": "vpn"}], "strategy": "ipv4_only"},
+  "inbounds": [{"type": "tun", "tag": "tun-in", "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"], "mtu": 1280, "auto_route": true, "strict_route": true, "stack": "mixed"}],
+  "outbounds": [{
+    "type": "vless", "tag": "vpn", "server": "{{ vpn_public_endpoint }}", "server_port": {{ xray_tcp_port }},
+    "uuid": "{{ vpn_xray_client_uuid }}", "flow": "xtls-rprx-vision",
+    "tls": {"enabled": true, "server_name": "{{ xray_reality_server_name }}", "utls": {"enabled": true, "fingerprint": "firefox"}, "reality": {"enabled": true, "public_key": "{{ vpn_xray_reality_public_key }}", "short_id": "{{ vpn_xray_reality_short_id }}"}}
+  }],
+  "route": {"auto_detect_interface": true, "rules": [{"action": "sniff"}, {"protocol": "dns", "action": "hijack-dns"}], "final": "vpn"}
+}

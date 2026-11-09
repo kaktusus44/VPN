@@ -1,0 +1,45 @@
+---
+- name: Install network helper
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/vpn-network.py"
+    dest: /usr/local/sbin/vpn-network
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Add provider-attached IPv4 without replacing the primary route
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/vpn-network, add, "{{ vpn_additional_ipv4 }}"]
+  register: vpn_extra_ip_result
+  changed_when: (vpn_extra_ip_result.stdout | from_json).changed
+  when: vpn_additional_ipv4 | default('') | length > 0
+
+- name: Discover configured public IPv4s
+  ansible.builtin.command: /usr/local/sbin/vpn-network discover
+  register: vpn_network_discovery
+  changed_when: false
+
+- name: Validate selected IPv4s before changing VPN services
+  ansible.builtin.assert:
+    that:
+      - vpn_public_endpoint in (vpn_network_discovery.stdout | from_json).addresses
+      - vpn_exit_ipv4 | default('') | length == 0 or vpn_exit_ipv4 in (vpn_network_discovery.stdout | from_json).addresses
+    fail_msg: Selected entry/exit IPv4 must be configured as a public address in the OS.
+
+- name: Check source routing for selected exit IPv4
+  ansible.builtin.command:
+    argv: [ip, '-4', route, get, '1.1.1.1', from, "{{ vpn_exit_ipv4 }}"]
+  changed_when: false
+  when: vpn_exit_ipv4 | default('') | length > 0
+
+- name: Create deployment state directory
+  ansible.builtin.file:
+    path: /var/lib/vpn
+    state: directory
+    mode: "0700"
+
+- name: Save non-secret deployment choices for independent phase runs
+  ansible.builtin.copy:
+    dest: /var/lib/vpn/deployment.json
+    mode: "0600"
+    content: "{{ {'vpn_public_endpoint': vpn_public_endpoint, 'vpn_exit_ipv4': vpn_exit_ipv4 | default(''), 'vpn_disable_ipv6': vpn_disable_ipv6 | default(false) | bool, 'vpn_client_count': vpn_client_count | int, 'install_mtproto': install_mtproto | bool, 'install_socks5': install_socks5 | bool} | to_nice_json }}\n"

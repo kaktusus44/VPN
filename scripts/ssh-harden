@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Invoked only after the deployment wrapper has verified a fresh key-only login.
+set -Eeuo pipefail
+cd "$(dirname "$0")/.."
+inventory="${1:?inventory required}"
+target="${2:?inventory host required}"
+address="${3:?server address required}"
+key="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
+ssh_args=(-i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o PreferredAuthentications=publickey
+  -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o ControlMaster=no
+  -o ControlPath=none -o ConnectTimeout=10)
+ssh "${ssh_args[@]}" "root@$address" 'test -s /root/.ssh/authorized_keys'
+.venv/bin/ansible-playbook -i "$inventory" --limit "$target" playbooks/ssh-harden.yml
