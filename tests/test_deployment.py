@@ -212,6 +212,7 @@ echo "ssh $*" >> "$TEST_LOG"
 if [[ "$*" == *'discover'* ]]; then
   echo '{"interface":"eth0","addresses":["8.8.8.8"],"state":{"vpn_client_count":2,"install_mtproto":false,"install_socks5":false,"vpn_disable_ipv6":true}}'
 elif [[ "$*" == *'monitoring-settings'* ]]; then echo '{}'
+elif [[ "$*" == *'/amnezia-vpn-links.txt'* ]]; then echo 'AMNEZIA-SECRET-MUST-STAY-IN-FILE'
 else echo 'client-artifact'; fi
 ''',
                     venv/'ansible': '#!/bin/bash\nexit 0\n',
@@ -231,6 +232,10 @@ else echo 'client-artifact'; fi
                 if phase in ('core','all'):
                     self.assertTrue((root/'exports/8.8.8.8/amnezia-vpn-links.txt').exists())
                     self.assertIn('client-artifact', result.stdout)
+                    self.assertNotIn('AMNEZIA-SECRET-MUST-STAY-IN-FILE', result.stdout)
+                    self.assertIn(str(root/'exports/8.8.8.8/amnezia-vpn-links.txt'), result.stdout)
+                    self.assertIn(str(root/'exports/8.8.8.8/amneziawg-client-configs.txt'), result.stdout)
+                    self.assertEqual((root/'exports/8.8.8.8/amnezia-vpn-links.txt').read_text().strip(), 'AMNEZIA-SECRET-MUST-STAY-IN-FILE')
                 else:
                     self.assertFalse((root/'exports').exists())
 
