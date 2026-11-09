@@ -1,0 +1,39 @@
+---
+- name: Install monitoring address migration helper on peer
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/vpn-readdress.py"
+    dest: /usr/local/sbin/vpn-readdress
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Update existing peer Prometheus targets without installing monitoring
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/vpn-readdress
+      - monitor
+      - --old-management
+      - "{{ vpn_rotation.old_management }}"
+      - --new-management
+      - "{{ hostvars[vpn_rotation.target].ansible_host }}"
+  register: vpn_peer_readdress
+  changed_when: (vpn_peer_readdress.stdout | from_json).changed
+
+- name: Update exporter firewall sources when main management IP changed
+  when: vpn_rotation.target_role == 'main' and vpn_server_role == 'reserve'
+  block:
+    - name: Allow new main address to scrape existing exporters
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ hostvars[vpn_rotation.target].ansible_host }}"
+        port: "{{ item }}"
+        proto: tcp
+      loop: ['9100', '9187', '9188']
+    - name: Remove old main address from exporter allow rules
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ vpn_rotation.old_management }}"
+        port: "{{ item }}"
+        proto: tcp
+        delete: true
+      loop: ['9100', '9187', '9188']

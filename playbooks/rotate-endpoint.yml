@@ -1,0 +1,22 @@
+---
+- name: Change addresses on an existing VPN server
+  hosts: "{{ vpn_rotation.target }}"
+  become: true
+  gather_facts: false
+  tags: [vpn-address]
+  roles:
+    - vpn_readdress
+
+- name: Update connected monitoring peers if the management address changed
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Update existing monitoring references on peers
+      ansible.builtin.import_role:
+        name: vpn_readdress
+        tasks_from: monitor
+      tags: [peers]
+      when:
+        - inventory_hostname != vpn_rotation.target
+        - vpn_rotation.old_management != hostvars[vpn_rotation.target].ansible_host

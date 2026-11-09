@@ -11,4 +11,6 @@ export ANSIBLE_LOCAL_TEMP=/tmp/vpn-ansible-check
 for playbook in playbooks/{vpn-core,monitoring,connect-reserve-monitoring,xray-exporter,ssh-harden}.yml; do
   ansible-playbook -i inventories/test/hosts.yml --syntax-check "$playbook"
 done
+ansible-playbook -i inventories/test/hosts.yml --syntax-check playbooks/rotate-endpoint.yml \
+  -e '{"vpn_rotation":{"target":"vpn_servers"}}'
 python3 -m unittest discover -s tests -v

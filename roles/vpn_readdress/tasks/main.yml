@@ -1,0 +1,38 @@
+---
+- name: Install address migration helpers
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - {src: vpn-readdress.py, dest: /usr/local/sbin/vpn-readdress}
+    - {src: vpn-network.py, dest: /usr/local/sbin/vpn-network}
+
+- name: Add explicitly confirmed provider-attached addresses
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/vpn-network, add, "{{ item }}"]
+  loop: "{{ vpn_rotation.add_addresses | default([]) }}"
+  register: vpn_readdress_added
+  changed_when: (vpn_readdress_added.stdout | from_json).changed
+
+- name: Change only addresses in existing VPN configurations and exports
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/vpn-readdress
+      - apply
+      - --entry
+      - "{{ vpn_rotation.entry }}"
+      - --exit
+      - "{{ vpn_rotation.exit }}"
+      - --old-management
+      - "{{ vpn_rotation.old_management }}"
+      - --new-management
+      - "{{ ansible_host }}"
+  register: vpn_readdress_result
+  changed_when: (vpn_readdress_result.stdout | from_json).changed
+
+- name: Report address migration
+  ansible.builtin.debug:
+    msg: "{{ vpn_readdress_result.stdout | from_json }}"

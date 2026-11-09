@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "rotate-endpoint is not implemented yet" >&2
-exit 2
+cd "$(dirname "$0")/.."
+if [ ! -x .venv/bin/python ]; then
+  echo 'Сначала запустите scripts/bootstrap-ubuntu-control.' >&2
+  exit 1
+fi
+exec .venv/bin/python scripts/rotate-endpoint.py "$@"
 
