@@ -410,12 +410,15 @@ if [ "$PHASE" = all ] || [ "$PHASE" = core ]; then
     ssh "${SSH_ARGS[@]}" "root@$SERVER_IP" 'cat /var/lib/vpn/telegram-proxy-links.txt' > "$EXPORT_DIR/telegram-proxy-links.txt"
   fi
   echo "VPN готов за $(format_duration "$(( $(date +%s) - DEPLOY_STARTED_AT ))"). Клиентские данные: $EXPORT_DIR"
+  print_client_data() {
   echo "Ссылки AmneziaVPN: $EXPORT_DIR/amnezia-vpn-links.txt"
   echo "На VPS: /var/lib/vpn/amnezia-vpn-links.txt"
   cat "$EXPORT_DIR/xray-client-links.txt" "$EXPORT_DIR/xray-experimental-client-links.txt"
   if [ -f "$EXPORT_DIR/telegram-proxy-links.txt" ]; then cat "$EXPORT_DIR/telegram-proxy-links.txt"; fi
   echo "Конфигурации AmneziaWG: $EXPORT_DIR/amneziawg-client-configs.txt"
   echo "Xray через TUN (sing-box, весь IPv4/IPv6 в VPN): $EXPORT_DIR/xray-tun-client.json"
+  }
+  print_client_data
 fi
 
 RUN_MONITORING=false
@@ -475,3 +478,7 @@ if yes_no "$HARDEN"; then bash scripts/ssh-harden "$INVENTORY_PATH" "$TARGET" "$
 echo "Готово. Время: $(format_duration "$(( $(date +%s) - DEPLOY_STARTED_AT ))")."
 echo "Позднее: scripts/deploy-server --phase monitoring $SERVER_ROLE $SERVER_IP"
 echo "Только Xray-exporter: scripts/deploy-server --phase exporter $SERVER_ROLE $SERVER_IP"
+if [ "$PHASE" = all ] || [ "$PHASE" = core ]; then
+  echo '==> Итоговые клиентские данные'
+  print_client_data
+fi

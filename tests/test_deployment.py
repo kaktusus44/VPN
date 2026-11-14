@@ -234,6 +234,9 @@ if [[ "$*" == *'discover'* ]]; then
   echo '{"interface":"eth0","addresses":["8.8.8.8"],"state":{"vpn_client_count":2,"install_mtproto":false,"install_socks5":false,"vpn_disable_ipv6":true}}'
 elif [[ "$*" == *'monitoring-settings'* ]]; then echo '{}'
 elif [[ "$*" == *'/amnezia-vpn-links.txt'* ]]; then echo 'AMNEZIA-SECRET-MUST-STAY-IN-FILE'
+elif [[ "$*" == *'/xray-client-links.txt'* ]]; then echo 'vless://test-xhttp'
+elif [[ "$*" == *'/xray-experimental-client-links.txt'* ]]; then echo 'vless://test-tcp'
+elif [[ "$*" == *'/telegram-proxy-links.txt'* ]]; then printf 'https://t.me/proxy?test-mtproto\\nhttps://t.me/socks?test-socks\\n'
 else echo 'client-artifact'; fi
 ''',
                     venv/'ansible': '#!/bin/bash\nexit 0\n',
@@ -243,6 +246,7 @@ else echo 'client-artifact'; fi
                     path.write_text(text); path.chmod(0o755)
                 env = os.environ | {'VPN_NONINTERACTIVE':'1', 'PATH':str(bin_dir)+os.pathsep+os.environ['PATH'], 'TEST_LOG':str(log),
                     'VPN_INSTALL_MONITORING':'no', 'VPN_DISABLE_SSH_PASSWORD':'no', 'VPN_MAIN_IP':'9.9.9.9',
+                    'VPN_INSTALL_MTPROTO':'yes', 'VPN_INSTALL_SOCKS5':'yes',
                     'VPN_TELEGRAM_ALERTS':'false', 'VPN_GRAFANA_ADMIN_PASSWORD':'test-password'}
                 result = subprocess.run(['bash', str(root/'scripts/deploy-server'), '--phase', phase, 'main', '8.8.8.8'], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -252,7 +256,12 @@ else echo 'client-artifact'; fi
                 self.assertEqual('playbooks/xray-exporter.yml' in commands, phase == 'exporter')
                 if phase in ('core','all'):
                     self.assertTrue((root/'exports/8.8.8.8/amnezia-vpn-links.txt').exists())
-                    self.assertIn('client-artifact', result.stdout)
+                    final_output = result.stdout.split('==> Итоговые клиентские данные')[-1]
+                    self.assertIn('==> Итоговые клиентские данные', result.stdout)
+                    self.assertIn('vless://test-xhttp', final_output)
+                    self.assertIn('vless://test-tcp', final_output)
+                    self.assertIn('https://t.me/proxy?test-mtproto', final_output)
+                    self.assertIn('https://t.me/socks?test-socks', final_output)
                     self.assertNotIn('AMNEZIA-SECRET-MUST-STAY-IN-FILE', result.stdout)
                     self.assertIn(str(root/'exports/8.8.8.8/amnezia-vpn-links.txt'), result.stdout)
                     self.assertIn(str(root/'exports/8.8.8.8/amneziawg-client-configs.txt'), result.stdout)
