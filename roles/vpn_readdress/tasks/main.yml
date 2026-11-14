@@ -15,7 +15,7 @@
     argv: [/usr/local/sbin/vpn-network, add, "{{ item }}"]
   loop: "{{ vpn_rotation.add_addresses | default([]) }}"
   register: vpn_readdress_added
-  changed_when: (vpn_readdress_added.stdout | from_json).changed
+  changed_when: vpn_readdress_added.rc == 0 and (vpn_readdress_added.stdout | from_json).changed
 
 - name: Change only addresses in existing VPN configurations and exports
   ansible.builtin.command:

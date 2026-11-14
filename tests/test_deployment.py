@@ -113,6 +113,27 @@ class NetworkTests(unittest.TestCase):
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
 
+    def test_waits_for_dhcp_default_route_recovery(self):
+        routes = [{'dev': 'eth0', 'gateway': '8.8.8.1'}]
+        with patch.object(self.module, 'configured_public_ipv4s', return_value=['1.1.1.1']), \
+                patch.object(self.module, 'default_routes', side_effect=[[], [], routes]), \
+                patch.object(self.module, 'run', return_value='') as run, \
+                patch.object(self.module.time, 'sleep') as sleep:
+            self.module.wait_for_network('1.1.1.1', routes)
+        self.assertEqual(sleep.call_count, 2)
+        run.assert_called_once_with('ip', '-4', 'route', 'get', '1.1.1.1', 'from', '1.1.1.1')
+
+    def test_does_not_accept_changed_or_missing_default_route(self):
+        for current in [[], [{'dev': 'eth0', 'gateway': '9.9.9.9'}]]:
+            with self.subTest(current=current), \
+                    patch.object(self.module, 'configured_public_ipv4s', return_value=['1.1.1.1']), \
+                    patch.object(self.module, 'default_routes', return_value=current), \
+                    patch.object(self.module.time, 'sleep'), \
+                    patch.object(self.module, 'run') as run:
+                with self.assertRaisesRegex(RuntimeError, 'did not converge'):
+                    self.module.wait_for_network('1.1.1.1', [{'dev': 'eth0', 'gateway': '8.8.8.1'}])
+                run.assert_not_called()
+
     def test_reject_non_public_addresses(self):
         for value in ['127.0.0.1', '10.0.0.1', '172.16.0.1', '192.168.0.1', '100.64.0.1', '224.0.0.1', '999.2.3.4']:
             with self.assertRaises(ValueError):

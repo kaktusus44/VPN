@@ -11,7 +11,7 @@
   ansible.builtin.command:
     argv: [/usr/local/sbin/vpn-network, add, "{{ vpn_additional_ipv4 }}"]
   register: vpn_extra_ip_result
-  changed_when: (vpn_extra_ip_result.stdout | from_json).changed
+  changed_when: vpn_extra_ip_result.rc == 0 and (vpn_extra_ip_result.stdout | from_json).changed
   when: vpn_additional_ipv4 | default('') | length > 0
 
 - name: Discover configured public IPv4s

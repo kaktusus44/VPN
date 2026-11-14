@@ -28,11 +28,7 @@ def default_routes():
                    for route in routes), key=lambda value: json.dumps(value, sort_keys=True))
 
 
-def discover():
-    routes = json.loads(run("ip", "-j", "-4", "route", "show", "default"))
-    if not routes or not routes[0].get("dev"):
-        raise RuntimeError("No primary IPv4 default route")
-    interface = routes[0]["dev"]
+def configured_public_ipv4s():
     addresses = []
     for link in json.loads(run("ip", "-j", "-4", "address", "show")):
         if link["ifname"] == "lo":
@@ -42,6 +38,29 @@ def discover():
                 addresses.append(public_ipv4(addr["local"]))
             except ValueError:
                 pass
+    return sorted(set(addresses))
+
+
+def wait_for_network(address, routes):
+    # Reconfiguring a DHCP link may temporarily remove its address/default route.
+    # Wait for both to recover; never accept a different final default route.
+    for _ in range(60):
+        if address in configured_public_ipv4s() and default_routes() == routes:
+            try:
+                run("ip", "-4", "route", "get", "1.1.1.1", "from", address)
+                return
+            except subprocess.CalledProcessError:
+                pass
+        time.sleep(0.5)
+    raise RuntimeError("Network did not converge within 30s: extra IPv4/source route missing or default route changed")
+
+
+def discover():
+    routes = json.loads(run("ip", "-j", "-4", "route", "show", "default"))
+    if not routes or not routes[0].get("dev"):
+        raise RuntimeError("No primary IPv4 default route")
+    interface = routes[0]["dev"]
+    addresses = configured_public_ipv4s()
     state = Path("/var/lib/vpn/deployment.json")
     saved = json.loads(state.read_text()) if state.exists() else {}
     # Upgrade existing deployments without silently removing peers or optional proxies.
@@ -96,15 +115,7 @@ def add_address(address):
             raise RuntimeError("Automatic extra IP requires Netplan/networkd")
         run("networkctl", "reload")
         run("networkctl", "reconfigure", interface)
-        for _ in range(10):
-            if address in discover()["addresses"]:
-                break
-            time.sleep(0.5)
-        if address not in discover()["addresses"]:
-            raise RuntimeError("Extra address did not appear")
-        if routes != default_routes():
-            raise RuntimeError("Default route changed")
-        run("ip", "-4", "route", "get", "1.1.1.1", "from", address)
+        wait_for_network(address, routes)
     except Exception:
         if original is None:
             path.unlink(missing_ok=True)
