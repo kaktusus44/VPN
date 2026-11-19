@@ -145,6 +145,7 @@ def main():
         names = ['amnezia-vpn-links.txt','amneziawg-client-configs.txt','client-links.txt',
                  'xray-client-links.txt','xray-experimental-client-links.txt','xray-tun-client.json',
                  'telegram-proxy-links.txt']
+        copied = set()
         for name in names:
             # Older installations may not have the optional TUN export yet.
             result = subprocess.run(ssh+[remote,elevate+'cat /var/lib/vpn/'+name], capture_output=True)
@@ -157,11 +158,18 @@ def main():
                 temporary.chmod(0o600)
                 stream.write(result.stdout)
             os.replace(temporary, exports/name)
+            copied.add(name)
+        print(f'\n==> Клиентские данные: входной IP {entry}', flush=True)
         print('Ссылки AmneziaVPN:', exports/'amnezia-vpn-links.txt')
         print('Конфигурации AmneziaWG:', exports/'amneziawg-client-configs.txt')
         print('На VPS: /var/lib/vpn/amnezia-vpn-links.txt и /var/lib/vpn/amneziawg-client-configs.txt')
-        for name in ['xray-client-links.txt','xray-experimental-client-links.txt']:
+        for label, name in [('Xray TCP Reality', 'xray-client-links.txt'),
+                            ('Xray XHTTP Reality', 'xray-experimental-client-links.txt')]:
+            print(f'{label} — на VPS: /var/lib/vpn/{name}; локально: {exports/name}')
             print((exports/name).read_text().strip())
+        if 'telegram-proxy-links.txt' in copied and (exports/'telegram-proxy-links.txt').read_text().strip():
+            print(f'Telegram-прокси — на VPS: /var/lib/vpn/telegram-proxy-links.txt; локально: {exports/"telegram-proxy-links.txt"}')
+            print((exports/'telegram-proxy-links.txt').read_text().strip())
         if entry != snapshot['entry']:
             print('Входной IP изменён: импортируйте обновлённые профили/ссылки на клиентах.')
         if old_management != address:

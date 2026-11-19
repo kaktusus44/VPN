@@ -53,7 +53,7 @@ class ReaddressTests(unittest.TestCase):
         for name in ['client-links.txt','xray-client-links.txt','xray-experimental-client-links.txt']:
             (m.STATE/name).write_text('vless://preserved-uuid@8.8.8.8:8444?security=reality\n')
         (m.STATE/'xray-tun-client.json').write_text(json.dumps({'outbounds':[{'type':'vless','server':'8.8.8.8','uuid':'preserved-uuid'}]}))
-        (m.STATE/'telegram-proxy-links.txt').write_text('https://t.me/proxy?server=8.8.8.8&port=9444&secret=unchanged\n')
+        (m.STATE/'telegram-proxy-links.txt').write_text('https://t.me/proxy?server=8.8.8.8&port=9444&secret=unchanged\nhttps://t.me/socks?server=8.8.8.8&port=1080&user=proxyuser&pass=unchanged\n')
         m.GRAFANA.write_text('[server]\ndomain = 8.8.8.8\nroot_url = https://8.8.8.8:443/\n')
         m.GRAFANA.chmod(0o640)
         (m.NGINX/'grafana.conf').write_text('server {\n server_name 8.8.8.8;\n}\n')
@@ -88,8 +88,19 @@ class ReaddressTests(unittest.TestCase):
         self.assertEqual(decoded['hostName'],'9.9.9.9')
         self.assertEqual(last['client_priv_key'],'client-secret')
         self.assertIn('Endpoint = 9.9.9.9:443', last['config'])
-        self.assertIn('preserved-uuid@9.9.9.9:8444', (m.STATE/'xray-client-links.txt').read_text())
-        self.assertIn('server=9.9.9.9', (m.STATE/'telegram-proxy-links.txt').read_text())
+        for name in ['client-links.txt','xray-client-links.txt','xray-experimental-client-links.txt']:
+            self.assertEqual((m.STATE/name).read_text(), 'vless://preserved-uuid@9.9.9.9:8444?security=reality\n')
+        for name in ['client-001.awg.conf','client-002.awg.conf','amneziawg-client-configs.txt']:
+            self.assertIn('Endpoint = 9.9.9.9:443', (m.STATE/name).read_text())
+            self.assertIn('PrivateKey = client-secret', (m.STATE/name).read_text())
+        telegram = (m.STATE/'telegram-proxy-links.txt').read_text()
+        self.assertEqual(telegram.count('server=9.9.9.9'), 2)
+        self.assertNotIn('8.8.8.8', telegram)
+        self.assertIn('secret=unchanged', telegram)
+        self.assertIn('user=proxyuser&pass=unchanged', telegram)
+        tun = json.loads((m.STATE/'xray-tun-client.json').read_text())['outbounds'][0]
+        self.assertEqual(tun['server'], '9.9.9.9')
+        self.assertEqual(tun['uuid'], 'preserved-uuid')
         constants = {node.targets[0].id:node.value.value for node in ast.walk(ast.parse(m.GENERATOR.read_text()))
                      if isinstance(node,ast.Assign) and len(node.targets)==1 and isinstance(node.targets[0],ast.Name) and isinstance(node.value,ast.Constant)}
         self.assertEqual(constants['ENDPOINT'],'9.9.9.9:443')
@@ -183,6 +194,9 @@ echo "$*" >> "$TEST_LOG"
 if [[ "$*" == *'inspect'* ]]; then
 echo '{"entry":"8.8.8.8","exit":"1.1.1.1","addresses":["8.8.8.8","9.9.9.9","1.1.1.1"]}'
 elif [[ "$*" == *'amnezia-vpn-links.txt'* ]]; then echo 'AMNEZIA-SECRET'
+elif [[ "$*" == *'xray-client-links.txt'* ]]; then echo 'vless://preserved-uuid@9.9.9.9:8444?security=reality'
+elif [[ "$*" == *'xray-experimental-client-links.txt'* ]]; then echo 'vless://preserved-uuid@9.9.9.9:8443?type=xhttp'
+elif [[ "$*" == *'telegram-proxy-links.txt'* ]]; then printf 'https://t.me/proxy?server=9.9.9.9&port=9444&secret=test\\nhttps://t.me/socks?server=9.9.9.9&port=1080&user=test&pass=test\\n'
 else echo 'vless://test-link'; fi
 '''
             for path,text in [(tools/'ssh',ssh),(tools/'ssh-keygen','#!/bin/bash\nexit 0\n'),
@@ -200,7 +214,19 @@ else echo 'vless://test-link'; fi
                                     env=env,capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertNotIn('AMNEZIA-SECRET',result.stdout)
-            self.assertIn('vless://test-link',result.stdout)
+            client_output = result.stdout.split('==> Клиентские данные:')[-1]
+            exports = root/'exports/9.9.9.9'
+            for name in ['xray-client-links.txt','xray-experimental-client-links.txt','telegram-proxy-links.txt']:
+                content = (exports/name).read_text().strip()
+                self.assertIn(content, client_output)
+                self.assertIn('/var/lib/vpn/'+name, client_output)
+                self.assertIn(str(exports/name), client_output)
+                self.assertNotIn('8.8.8.8', content)
+                self.assertEqual((exports/name).stat().st_mode & 0o777, 0o600)
+            self.assertIn('vless://preserved-uuid@9.9.9.9:8444', client_output)
+            self.assertIn('vless://preserved-uuid@9.9.9.9:8443', client_output)
+            self.assertIn('https://t.me/proxy?server=9.9.9.9', client_output)
+            self.assertIn('https://t.me/socks?server=9.9.9.9', client_output)
             saved = json.loads((root/'inventories/managed/9.9.9.9/hosts.yml').read_text())
             hosts = saved['all']['children']['vpn_servers']['hosts']
             self.assertEqual(hosts['vpn-main']['ansible_host'],'9.9.9.9')
