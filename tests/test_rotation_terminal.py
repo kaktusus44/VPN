@@ -31,8 +31,17 @@ class RotationTerminalTests(unittest.TestCase):
                 venv = repo/'.venv/bin'
                 venv.mkdir(parents=True)
                 (venv/'python').symlink_to(sys.executable)
-                key = root/'key with spaces'
+                key = root/'.ssh/vpn_ansible' if choice == '2' else root/'key with spaces'
+                key.parent.mkdir(parents=True, exist_ok=True)
                 key.write_text('test-placeholder')
+                expected_port = 22 if choice == '2' else 2222
+                if choice == '1':
+                    inventory = repo/'inventories/managed/8.8.8.8/hosts.yml'
+                    inventory.parent.mkdir(parents=True)
+                    inventory.write_text(json.dumps({'all': {'children': {'vpn_servers': {'hosts': {
+                        'vpn-main': {'ansible_host': '8.8.8.8', 'vpn_server_role': 'main',
+                                     'ansible_port': expected_port, 'ansible_ssh_private_key_file': str(key)}
+                    }}}}}))
                 log = root/'commands'
                 result_file = root/'result.json'
                 scripts = {
@@ -59,6 +68,8 @@ pathlib.Path(os.environ['TEST_RESULT']).write_text(json.dumps([variables, invent
                 env = {k:v for k,v in os.environ.items() if not k.startswith('VPN_')}
                 env.update(HOME=str(root), VPN_DIR=str(repo), PATH=str(binaries)+':'+os.environ['PATH'],
                            TEST_LOG=str(log), TEST_RESULT=str(result_file), PYTHONUNBUFFERED='1')
+                if choice == '3':
+                    env.update(VPN_SSH_PORT=str(expected_port), VPN_SSH_KEY=str(key))
                 master, slave = pty.openpty()
 
                 def terminal_session():
@@ -75,8 +86,6 @@ pathlib.Path(os.environ['TEST_RESULT']).write_text(json.dumps([variables, invent
                     ('IPv4 сервера, на котором', '8.8.8.8'),
                     ('Прежний IPv4', ''),
                     ('Пользователь SSH', 'operator'),
-                    ('Порт SSH', '2222'),
-                    ('Путь к существующему', str(key)),
                     ('Выберите 1/2/3', choice),
                 ]
                 if choice in ('1','3'):
@@ -120,7 +129,9 @@ pathlib.Path(os.environ['TEST_RESULT']).write_text(json.dumps([variables, invent
                 self.assertEqual(rotation['add_addresses'], ['2.2.2.2'] if choice in ('2','3') else [])
                 host = inventory['all']['children']['vpn_servers']['hosts']['vpn-main']
                 self.assertEqual(host['ansible_user'], 'operator')
-                self.assertEqual(host['ansible_port'], 2222)
+                self.assertEqual(host['ansible_port'], expected_port)
                 self.assertEqual(host['ansible_ssh_private_key_file'], str(key))
                 self.assertIn('operator@8.8.8.8 sudo -n python3 - inspect', log.read_text())
                 self.assertNotIn('СКОПИРУЙТЕ', text)
+                self.assertNotIn('Порт SSH [', text)
+                self.assertNotIn('Путь к существующему', text)

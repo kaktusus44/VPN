@@ -77,13 +77,13 @@ def main():
     user = os.environ.get('VPN_SSH_USER') or ask('Пользователь SSH (для не-root нужен sudo без пароля)', saved.get('ansible_user', 'root'))
     if not re.fullmatch(r'[a-zA-Z_][a-zA-Z0-9_.-]*\$?', user):
         raise ValueError('Некорректное имя пользователя SSH')
-    port = int(os.environ.get('VPN_SSH_PORT') or ask('Порт SSH', str(saved.get('ansible_port', 22))))
+    port = int(os.environ.get('VPN_SSH_PORT') or saved.get('ansible_port', 22))
     if not 1 <= port <= 65535:
         raise ValueError('Порт SSH должен быть от 1 до 65535')
-    key = os.environ.get('VPN_SSH_KEY') or ask('Путь к существующему приватному SSH-ключу', saved.get('ansible_ssh_private_key_file', str(Path.home()/'.ssh/vpn_ansible')))
+    key = os.environ.get('VPN_SSH_KEY') or saved.get('ansible_ssh_private_key_file') or str(Path.home()/'.ssh/vpn_ansible')
     key = str(Path(key).expanduser().resolve())
     if not Path(key).is_file():
-        raise ValueError('SSH-ключ не найден: ' + key)
+        raise ValueError('SSH-ключ не найден: ' + key + '. Укажите существующий ключ через VPN_SSH_KEY. Новый ключ не создаётся.')
     ssh = ['ssh','-i',key,'-p',str(port),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','ConnectTimeout=10']
     remote = user + '@' + address
     elevate = '' if user == 'root' else 'sudo -n '
