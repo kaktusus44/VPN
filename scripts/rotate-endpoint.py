@@ -2,6 +2,7 @@
 """Interactive controller for the vpn_readdress role."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -20,12 +21,36 @@ def ask(prompt, default=''):
     if os.environ.get('VPN_NONINTERACTIVE') == '1':
         return default
     try:
-        with open('/dev/tty', 'r+') as terminal:
+        # TTY streams are not seekable: r+ can fail before displaying a prompt.
+        with open('/dev/tty', 'w') as terminal, open('/dev/tty', 'r') as answers:
             terminal.write(prompt + (f' [{default}]' if default else '') + ': ')
             terminal.flush()
-            return terminal.readline().strip() or default
-    except OSError:
-        return default
+            answer = answers.readline()
+            if not answer:
+                raise RuntimeError('Ввод прерван. Изменения не применены.')
+            return answer.strip() or default
+    except OSError as error:
+        raise RuntimeError('Нет интерактивного терминала. Запустите команду в терминале или задайте VPN_NONINTERACTIVE=1 и параметры через переменные окружения.') from error
+
+
+def choose_addresses(snapshot):
+    default = 'both'
+    if os.environ.get('VPN_NEW_ENTRY_IPV4') and not os.environ.get('VPN_NEW_EXIT_IPV4'):
+        default = 'entry'
+    elif os.environ.get('VPN_NEW_EXIT_IPV4') and not os.environ.get('VPN_NEW_ENTRY_IPV4'):
+        default = 'exit'
+    print('\nЧто меняем?\n  1 — адрес подключения к VPN (входной)\n  2 — адрес, с которым VPN выходит в интернет (выходной)\n  3 — оба адреса', flush=True)
+    selected = os.environ.get('VPN_ROTATE_WHAT') or ask('Выберите 1/2/3', {'entry':'1','exit':'2','both':'3'}[default])
+    mode = {'1':'entry','2':'exit','3':'both','entry':'entry','exit':'exit','both':'both'}.get(selected)
+    if mode is None:
+        raise ValueError('Выберите 1 (входной), 2 (выходной) или 3 (оба)')
+    entry, exit_ip = snapshot['entry'], snapshot['exit']
+    if mode in ['entry','both']:
+        entry = helper.public_ip(os.environ.get('VPN_NEW_ENTRY_IPV4') or ask('Новый IPv4 для подключения к VPN', entry))
+    if mode in ['exit','both']:
+        exit_ip = os.environ.get('VPN_NEW_EXIT_IPV4') or ask('Новый IPv4 для выхода в интернет (auto — выбор системой)', exit_ip or 'auto')
+        exit_ip = '' if exit_ip == 'auto' else helper.public_ip(exit_ip)
+    return entry, exit_ip
 
 
 def main():
@@ -35,10 +60,11 @@ def main():
     role = role or ask('Роль сервера main/reserve', 'main')
     if role not in ['main','reserve']:
         raise ValueError('Роль должна быть main или reserve')
-    address = helper.public_ip(address or ask('Текущий доступный IPv4 для SSH'))
+    address = address or os.environ.get('VPN_SSH_HOST') or ask('IPv4 сервера, на котором меняем VPN (доступный по SSH)')
+    if not address:
+        raise ValueError('Не указан IPv4 сервера для SSH')
+    address = helper.public_ip(address)
     old_management = helper.public_ip(os.environ.get('VPN_OLD_SSH_IPV4') or ask('Прежний IPv4 для SSH/мониторинга (если не менялся, Enter)', address))
-    key = os.environ.get('VPN_SSH_KEY', str(Path.home()/'.ssh/vpn_ansible'))
-    ssh = ['ssh','-i',key,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','ConnectTimeout=10']
     inventory_path = ROOT/'inventories/managed'/old_management/'hosts.yml'
     inventory = yaml.safe_load(inventory_path.read_text()) if inventory_path.exists() else {
         'all':{'children':{'vpn_servers':{'hosts':{}}}}}
@@ -47,7 +73,22 @@ def main():
     target = matches[0] if len(matches) == 1 else 'vpn-' + role
     if target in entries and entries[target].get('ansible_host') not in [old_management,address]:
         raise ValueError('Inventory содержит другой сервер с этим именем; укажите правильный прежний SSH IP')
-    entries.setdefault(target, {}).update(ansible_host=address, ansible_user='root', ansible_port=22,
+    saved = entries.get(target, {})
+    user = os.environ.get('VPN_SSH_USER') or ask('Пользователь SSH (для не-root нужен sudo без пароля)', saved.get('ansible_user', 'root'))
+    if not re.fullmatch(r'[a-zA-Z_][a-zA-Z0-9_.-]*\$?', user):
+        raise ValueError('Некорректное имя пользователя SSH')
+    port = int(os.environ.get('VPN_SSH_PORT') or ask('Порт SSH', str(saved.get('ansible_port', 22))))
+    if not 1 <= port <= 65535:
+        raise ValueError('Порт SSH должен быть от 1 до 65535')
+    key = os.environ.get('VPN_SSH_KEY') or ask('Путь к существующему приватному SSH-ключу', saved.get('ansible_ssh_private_key_file', str(Path.home()/'.ssh/vpn_ansible')))
+    key = str(Path(key).expanduser().resolve())
+    if not Path(key).is_file():
+        raise ValueError('SSH-ключ не найден: ' + key)
+    ssh = ['ssh','-i',key,'-p',str(port),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','ConnectTimeout=10']
+    remote = user + '@' + address
+    elevate = '' if user == 'root' else 'sudo -n '
+    entries.setdefault(target, {}).update(ansible_host=address, ansible_user=user, ansible_port=port,
+                                         ansible_ssh_private_key_file=key,
                                          vpn_server_role=role, vpn_public_endpoint=address)
     # If no saved peer is known, allow the same topology variables as deploy-server.
     for peer_role, env_name in [('main','VPN_MAIN_IP'),('reserve','VPN_RESERVE_IP')]:
@@ -56,24 +97,23 @@ def main():
             entries['vpn-'+peer_role] = dict(ansible_host=peer, ansible_user='root', ansible_port=22,
                                              vpn_server_role=peer_role, vpn_public_endpoint=peer)
 
-    def known_host(host):
-        if subprocess.run(['ssh-keygen','-F',host], stdout=subprocess.DEVNULL).returncode != 0:
+    def known_host(host, ssh_port=22):
+        lookup = host if ssh_port == 22 else f'[{host}]:{ssh_port}'
+        if subprocess.run(['ssh-keygen','-F',lookup], stdout=subprocess.DEVNULL).returncode != 0:
             directory = Path.home()/'.ssh'
             directory.mkdir(mode=0o700, exist_ok=True)
-            scan = subprocess.check_output(['ssh-keyscan','-T','5','-H',host])
+            scan = subprocess.check_output(['ssh-keyscan','-T','5','-p',str(ssh_port),'-H',host])
             with (directory/'known_hosts').open('ab') as stream:
                 stream.write(scan)
 
-    known_host(address)
-    snapshot = json.loads(subprocess.check_output(ssh + ['root@'+address,'python3 - inspect'],
+    print(f'Подключаюсь к {remote}, SSH-порт {port}…', flush=True)
+    known_host(address, port)
+    snapshot = json.loads(subprocess.check_output(ssh + [remote,elevate+'python3 - inspect'],
                                                   input=(ROOT/'scripts/vpn-readdress.py').read_bytes()))
     print('Текущий входной IP:', snapshot['entry'])
     print('Текущий выходной IP:', snapshot['exit'] or 'auto (выбор системой)')
     print('Публичные IPv4 в ОС:', ', '.join(snapshot['addresses']))
-    default_entry = snapshot['entry'] if snapshot['entry'] in snapshot['addresses'] else address
-    entry = helper.public_ip(os.environ.get('VPN_NEW_ENTRY_IPV4') or ask('Новый входной IPv4', default_entry))
-    exit_ip = os.environ.get('VPN_NEW_EXIT_IPV4') or ask('Новый выходной IPv4 (auto — выбор системой)', snapshot['exit'] or 'auto')
-    exit_ip = '' if exit_ip == 'auto' else helper.public_ip(exit_ip)
+    entry, exit_ip = choose_addresses(snapshot)
     additions = []
     explicit = {helper.public_ip(value.strip()) for value in os.environ.get('VPN_ADDITIONAL_IPV4', '').split(',') if value.strip()}
     for value in dict.fromkeys([entry, exit_ip]):
@@ -107,7 +147,7 @@ def main():
                  'telegram-proxy-links.txt']
         for name in names:
             # Older installations may not have the optional TUN export yet.
-            result = subprocess.run(ssh+['root@'+address,'cat /var/lib/vpn/'+name], capture_output=True)
+            result = subprocess.run(ssh+[remote,elevate+'cat /var/lib/vpn/'+name], capture_output=True)
             if result.returncode:
                 if name in ['xray-tun-client.json', 'telegram-proxy-links.txt']:
                     continue
@@ -127,7 +167,7 @@ def main():
         if old_management != address:
             for name, values in entries.items():
                 if name != target:
-                    known_host(values['ansible_host'])
+                    known_host(values['ansible_host'], int(values.get('ansible_port', 22)))
             subprocess.run(command+['--tags','peers'], env=environment, check=True, cwd=ROOT)
             if len(entries) == 1:
                 print('В inventory нет второй ноды; при её наличии повторите команду с VPN_MAIN_IP или VPN_RESERVE_IP для обновления мониторинга.')
@@ -137,6 +177,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print('Смена IP не завершена: '+str(error), file=sys.stderr)
         sys.exit(1)

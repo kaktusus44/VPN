@@ -35,6 +35,7 @@ class BootstrapRotationTests(unittest.TestCase):
                     binaries / 'apt-get': '#!/bin/bash\nexit 99\n',
                     venv / 'python': '#!/bin/bash\nexit 0\n',
                     venv / 'ansible': '#!/bin/bash\necho "ansible [core 2.17.0]"\n',
+                    venv / 'ansible-playbook': '#!/bin/bash\nexit 99\n',
                     venv / 'ansible-galaxy': '#!/bin/bash\nprintf "ansible.posix 1.0\\ncommunity.general 1.0\\n"\n',
                     repo / 'scripts/deploy-server': '#!/bin/bash\necho DEPLOY >> "$TEST_LOG"\nexit 99\n',
                     repo / 'scripts/rotate-endpoint': '#!/bin/bash\nprintf "rotate %s key=%s\\n" "$*" "$VPN_SSH_KEY" >> "$TEST_LOG"\nexit "$TEST_EXIT"\n',
@@ -58,6 +59,8 @@ class BootstrapRotationTests(unittest.TestCase):
                 self.assertIn('pull --ff-only', calls)
                 self.assertIn(f'rotate main 8.8.8.8 key={key}', calls)
                 self.assertNotIn('DEPLOY', calls)
+                self.assertNotIn('SSH-КЛЮЧ', result.stdout)
+                self.assertNotIn('sudo', result.stdout)
 
     def test_unknown_option_fails_before_preparing_machine(self):
         result = subprocess.run(

@@ -92,11 +92,6 @@ ansible_core_compatible() {
 print_control_summary() {
   local installed_packages
 
-  if [ "$CONTROL_ACTION" = rotate ]; then
-    printf '\nУправляющая Ubuntu готова к смене IP.\nРепозиторий: %s\nSSH-ключ: %s\n' "$INSTALL_DIR" "$SSH_KEY_PATH"
-    return
-  fi
-
   if [ "${#APT_PACKAGES_INSTALLED[@]}" -gt 0 ]; then
     installed_packages="${APT_PACKAGES_INSTALLED[*]}"
   else
@@ -147,6 +142,21 @@ EOF
   "$ANSIBLE_VENV/bin/ansible-galaxy" collection list 2>/dev/null | grep -E '^(ansible\.posix|community\.general)[[:space:]]' || \
     echo "  ansible-galaxy collection list недоступен или collections ещё не установлены"
 }
+
+if [ "$CONTROL_ACTION" = rotate ]; then
+  # Rotation reuses the controller. Do not ask for sudo or generate SSH keys.
+  if ! need_cmd git || ! need_cmd ssh || [ ! -d "$INSTALL_DIR/.git" ]; then
+    echo "Не найден подготовленный управляющий репозиторий: $INSTALL_DIR. Сначала подготовьте управляющую Ubuntu или задайте VPN_DIR." >&2
+    exit 1
+  fi
+  log "Обновляю скрипт ротации: $INSTALL_DIR"
+  git -C "$INSTALL_DIR" pull --ff-only
+  if [ ! -x "$ANSIBLE_VENV/bin/python" ] || [ ! -x "$ANSIBLE_VENV/bin/ansible-playbook" ]; then
+    echo "В $INSTALL_DIR не подготовлен Ansible. Сначала подготовьте управляющую Ubuntu." >&2
+    exit 1
+  fi
+  exec "$INSTALL_DIR/scripts/rotate-endpoint" "$@"
+fi
 
 if ! need_cmd apt-get; then
   echo "Этот bootstrap-скрипт поддерживает Ubuntu/Debian с apt-get." >&2
@@ -241,10 +251,7 @@ install_collections
 log "Управляющая Ubuntu готова"
 print_control_summary
 
-if [ "$CONTROL_ACTION" = rotate ]; then
-  log "Запускаю смену IP существующего VPN"
-  VPN_SSH_KEY="$SSH_KEY_PATH" "$INSTALL_DIR/scripts/rotate-endpoint" "$@"
-elif [ -r /dev/tty ]; then
+if [ -r /dev/tty ]; then
   echo
   ask_tty "Добавьте ключ у провайдера или выполните команду на VPS, затем нажмите Enter..." >/dev/null
   SERVER_ROLE="$(ask_tty "Какой сервер разворачиваем [main/reserve]: ")"

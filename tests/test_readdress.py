@@ -176,6 +176,8 @@ class ReaddressControllerTests(unittest.TestCase):
             tools = root/'bin'; tools.mkdir()
             venv = root/'.venv/bin'; venv.mkdir(parents=True)
             log = root/'log'
+            key = root/'test-key'
+            key.write_text('test-placeholder')
             ssh = '''#!/bin/bash
 echo "$*" >> "$TEST_LOG"
 if [[ "$*" == *'inspect'* ]]; then
@@ -191,7 +193,7 @@ else echo 'vless://test-link'; fi
             inventory.write_text(json.dumps({'all':{'children':{'vpn_servers':{'hosts':{
                 'vpn-main':{'ansible_host':'8.8.8.8','vpn_server_role':'main'},
                 'vpn-reserve':{'ansible_host':'1.1.1.1','vpn_server_role':'reserve'}}}}}}))
-            env = os.environ | {'VPN_NONINTERACTIVE':'1','VPN_OLD_SSH_IPV4':'8.8.8.8',
+            env = os.environ | {'VPN_NONINTERACTIVE':'1','VPN_OLD_SSH_IPV4':'8.8.8.8','VPN_SSH_KEY':str(key),
                                 'VPN_NEW_ENTRY_IPV4':'9.9.9.9','TEST_LOG':str(log),
                                 'PATH':str(tools)+':'+os.environ['PATH']}
             result = subprocess.run([sys.executable,str(root/'scripts/rotate-endpoint.py'),'main','9.9.9.9'],
