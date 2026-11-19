@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+CONTROL_ACTION=deploy
+case "${1:-}" in
+  --rotate) CONTROL_ACTION=rotate; shift ;;
+  '') ;;
+  *) echo "Использование: bash bootstrap-ubuntu-control [--rotate [main|reserve SSH-IP]]" >&2; exit 2 ;;
+esac
+
 REPO_URL="${VPN_REPO_URL:-https://github.com/kaktusus44/VPN.git}"
 INSTALL_DIR="${VPN_DIR:-$HOME/VPN}"
 SSH_KEY_PATH="${VPN_SSH_KEY:-$HOME/.ssh/vpn_ansible}"
@@ -84,6 +91,11 @@ ansible_core_compatible() {
 
 print_control_summary() {
   local installed_packages
+
+  if [ "$CONTROL_ACTION" = rotate ]; then
+    printf '\nУправляющая Ubuntu готова к смене IP.\nРепозиторий: %s\nSSH-ключ: %s\n' "$INSTALL_DIR" "$SSH_KEY_PATH"
+    return
+  fi
 
   if [ "${#APT_PACKAGES_INSTALLED[@]}" -gt 0 ]; then
     installed_packages="${APT_PACKAGES_INSTALLED[*]}"
@@ -229,7 +241,10 @@ install_collections
 log "Управляющая Ubuntu готова"
 print_control_summary
 
-if [ -r /dev/tty ]; then
+if [ "$CONTROL_ACTION" = rotate ]; then
+  log "Запускаю смену IP существующего VPN"
+  VPN_SSH_KEY="$SSH_KEY_PATH" "$INSTALL_DIR/scripts/rotate-endpoint" "$@"
+elif [ -r /dev/tty ]; then
   echo
   ask_tty "Добавьте ключ у провайдера или выполните команду на VPS, затем нажмите Enter..." >/dev/null
   SERVER_ROLE="$(ask_tty "Какой сервер разворачиваем [main/reserve]: ")"

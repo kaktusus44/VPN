@@ -22,6 +22,14 @@ git pull
 
 ### Поменять IP на работающем сервере
 
+Одной командой с управляющей Ubuntu (подготовит окружение и обновит репозиторий):
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kaktusus44/VPN/main/scripts/bootstrap-ubuntu-control | bash -s -- --rotate
+```
+
+Если окружение уже готово и репозиторий обновлён:
+
 ```bash
 scripts/rotate-endpoint
 ```
